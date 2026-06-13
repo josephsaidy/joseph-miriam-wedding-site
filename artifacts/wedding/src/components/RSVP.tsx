@@ -87,10 +87,26 @@ export default function RSVP() {
     setErrorMsg(null);
     try {
       const { data, error } = await supabase.rpc("search_guests_for_rsvp");
+
+      // DEBUG — remove after confirming search works
+      console.log("[RSVP DEBUG] RPC error:", error);
+      console.log("[RSVP DEBUG] RPC data:", data);
+
       if (error) throw error;
 
       const candidates = (data as SearchCandidate[]) ?? [];
-      const results    = findMatches(query, candidates);
+
+      // DEBUG — remove after confirming search works
+      console.log(`[RSVP DEBUG] Candidates from DB: ${candidates.length}`);
+      if (candidates.length > 0) {
+        console.log("[RSVP DEBUG] First candidate:", candidates[0]);
+      }
+
+      const results = findMatches(query, candidates);
+
+      // DEBUG — remove after confirming search works
+      console.log(`[RSVP DEBUG] Query: "${query}"`);
+      console.log(`[RSVP DEBUG] Fuzzy results: ${results.length}`, results);
 
       if (results.length === 0) {
         setStep("not_found");
@@ -100,7 +116,7 @@ export default function RSVP() {
       }
     } catch (err) {
       setErrorMsg("Something went wrong. Please try again.");
-      console.error(err);
+      console.error("[RSVP DEBUG] Search exception:", err);
     } finally {
       setIsLoading(false);
     }
