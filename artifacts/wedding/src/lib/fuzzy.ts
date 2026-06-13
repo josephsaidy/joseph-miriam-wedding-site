@@ -50,7 +50,6 @@ const NICKNAME_MAP: Record<string, string[]> = {
   joe: ["joseph"],
   jo: ["joseph"],
   mike: ["michael"],
-  mike: ["michael"],
   chris: ["christopher"],
   tony: ["anthony"],
   alex: ["alexander", "alexandra"],
