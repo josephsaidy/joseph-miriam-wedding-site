@@ -214,9 +214,30 @@ BEGIN
 END;
 $$;
 
--- 10. GRANT RPC access to anon role
+-- 10. RPC: DELETE GROUP
+--     Deletes all rows sharing a group_name. Used by the admin dashboard.
+--     Returns the number of rows deleted.
+CREATE OR REPLACE FUNCTION delete_group(p_group_name TEXT)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_deleted INTEGER;
+BEGIN
+  DELETE FROM guests WHERE group_name = p_group_name;
+  GET DIAGNOSTICS v_deleted = ROW_COUNT;
+  IF v_deleted = 0 THEN
+    RAISE EXCEPTION 'Group not found: %', p_group_name;
+  END IF;
+  RETURN v_deleted;
+END;
+$$;
+
+-- 11. GRANT RPC access to anon role
 GRANT EXECUTE ON FUNCTION search_guests_for_rsvp()                              TO anon;
 GRANT EXECUTE ON FUNCTION get_group_by_guest_id(UUID)                           TO anon;
 GRANT EXECUTE ON FUNCTION submit_rsvp(UUID, TEXT, INTEGER, TEXT, TEXT)          TO anon;
 GRANT EXECUTE ON FUNCTION get_all_guests_admin()                                TO anon;
 GRANT EXECUTE ON FUNCTION admin_update_group(TEXT, TEXT, INTEGER, TEXT, TEXT)   TO anon;
+GRANT EXECUTE ON FUNCTION delete_group(TEXT)                                    TO anon;

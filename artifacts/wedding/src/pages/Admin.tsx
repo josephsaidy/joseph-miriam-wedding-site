@@ -114,8 +114,12 @@ export default function Admin() {
   const [editState, setEditState]       = useState<EditState>({
     rsvp_status: "pending", attending_count: 1, guest_message: "", dietary_restrictions: "",
   });
-  const [saving, setSaving]     = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving]         = useState(false);
+  const [saveError, setSaveError]   = useState<string | null>(null);
+
+  // Delete state
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null); // group_name pending confirm
+  const [deleting, setDeleting]           = useState(false);
 
   useEffect(() => {
     if (sessionStorage.getItem("rsvp_admin") === "1") setAuthed(true);
@@ -136,6 +140,20 @@ export default function Admin() {
       setFetchError(err instanceof Error ? err.message : "Failed to load guests.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDelete(groupName: string) {
+    setDeleting(true);
+    try {
+      const { error } = await supabase.rpc("delete_group", { p_group_name: groupName });
+      if (error) throw error;
+      setConfirmDelete(null);
+      await loadGuests();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to delete group.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -487,6 +505,7 @@ export default function Admin() {
                         {/* Actions */}
                         <td className="px-4 py-4 whitespace-nowrap">
                           {isEditing ? (
+                            /* ── Save / Cancel ── */
                             <div className="flex flex-col gap-2 items-start">
                               <div className="flex gap-2">
                                 <button
@@ -508,14 +527,47 @@ export default function Admin() {
                                 <p className="text-red-500 text-xs max-w-[160px]">{saveError}</p>
                               )}
                             </div>
+                          ) : confirmDelete === gr.group_name ? (
+                            /* ── Delete confirm ── */
+                            <div className="flex flex-col gap-2 items-start">
+                              <p className="text-xs text-red-600 font-medium max-w-[160px] leading-snug">
+                                Delete {gr.members.length} person{gr.members.length !== 1 ? "s" : ""}?
+                              </p>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleDelete(gr.group_name)}
+                                  disabled={deleting}
+                                  className="border border-red-500 text-red-600 text-xs font-serif px-3 py-1.5 hover:bg-red-500 hover:text-white transition-all duration-200 disabled:opacity-50"
+                                >
+                                  {deleting ? "Deleting…" : "Confirm"}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmDelete(null)}
+                                  disabled={deleting}
+                                  className="text-xs text-muted-foreground underline underline-offset-2 disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
                           ) : (
-                            <button
-                              onClick={() => startEdit(gr)}
-                              disabled={editingGroup !== null}
-                              className="border border-border text-muted-foreground text-xs font-serif px-3 py-1.5 hover:border-foreground hover:text-foreground transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
-                            >
-                              Edit
-                            </button>
+                            /* ── Default: Edit + Delete ── */
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => startEdit(gr)}
+                                disabled={editingGroup !== null || confirmDelete !== null}
+                                className="border border-border text-muted-foreground text-xs font-serif px-3 py-1.5 hover:border-foreground hover:text-foreground transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => setConfirmDelete(gr.group_name)}
+                                disabled={editingGroup !== null || confirmDelete !== null}
+                                className="border border-border text-muted-foreground text-xs font-serif px-3 py-1.5 hover:border-red-400 hover:text-red-500 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
