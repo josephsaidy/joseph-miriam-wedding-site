@@ -16,7 +16,7 @@ export default function GettingThere() {
             <h2 className="text-4xl md:text-5xl font-serif">Getting There</h2>
           </div>
 
-          <div className="w-full max-w-2xl overflow-hidden rounded-xl shadow-lg mb-0">
+          <div className="w-full max-w-2xl mx-auto overflow-hidden rounded-xl shadow-lg mb-0">
             <img
               src="/images/hotel-massabki.webp"
               alt="Massabki Hotel, Chtoura"
