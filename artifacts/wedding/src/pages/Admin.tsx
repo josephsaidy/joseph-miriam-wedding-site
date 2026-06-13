@@ -11,7 +11,7 @@ interface GroupRow {
   members: Guest[];
   leader: Guest | undefined;
   allowed_guests: number;
-  rsvp_status: string;         // derived from leader / first member
+  rsvp_status: string;
   attending_count: number | null;
   guest_message: string | null;
   dietary_restrictions: string | null;
@@ -45,6 +45,15 @@ function buildGroups(guests: Guest[]): GroupRow[] {
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
+/** Wrap a value in double-quotes, escaping any embedded double-quotes. */
+function csvCell(value: string | number | null | undefined): string {
+  const str = String(value ?? "");
+  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
 function exportCSV(groups: GroupRow[]) {
   const headers = [
     "Group Name",
@@ -56,21 +65,23 @@ function exportCSV(groups: GroupRow[]) {
     "Dietary Restrictions",
     "Submitted At",
   ];
+
   const rows = groups.map((gr) => [
-    gr.group_name,
-    gr.members.map((m) => m.full_name).join(" | "),
-    gr.allowed_guests,
-    gr.rsvp_status,
-    gr.attending_count ?? "",
-    (gr.guest_message ?? "").replace(/,/g, ";"),
-    (gr.dietary_restrictions ?? "").replace(/,/g, ";"),
-    gr.submitted_at ? new Date(gr.submitted_at).toLocaleString() : "",
+    csvCell(gr.group_name),
+    csvCell(gr.members.map((m) => m.full_name).join(" | ")),
+    csvCell(gr.allowed_guests),
+    csvCell(gr.rsvp_status),
+    csvCell(gr.attending_count),
+    csvCell(gr.guest_message),
+    csvCell(gr.dietary_restrictions),
+    csvCell(gr.submitted_at ? new Date(gr.submitted_at).toLocaleString() : ""),
   ]);
-  const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
+
+  const csv = [headers.map(csvCell), ...rows].map((r) => r.join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
   a.download = "rsvp-responses.csv";
   a.click();
   URL.revokeObjectURL(url);
@@ -98,11 +109,8 @@ export default function Admin() {
     setLoading(true);
     setFetchError(null);
     try {
-      const { data, error } = await supabase
-        .from("guests")
-        .select("*")
-        .order("group_name")
-        .order("is_group_leader", { ascending: false });
+      // Uses SECURITY DEFINER RPC — direct table SELECT is blocked for anon
+      const { data, error } = await supabase.rpc("get_all_guests_admin");
       if (error) throw error;
       setGuests((data as Guest[]) ?? []);
     } catch (err: unknown) {
@@ -128,7 +136,9 @@ export default function Admin() {
   const groups = buildGroups(guests);
 
   const totalInvited      = groups.reduce((s, g) => s + g.allowed_guests, 0);
-  const totalAttending    = groups.filter((g) => g.rsvp_status === "attending").reduce((s, g) => s + (g.attending_count ?? 0), 0);
+  const totalAttending    = groups
+    .filter((g) => g.rsvp_status === "attending")
+    .reduce((s, g) => s + (g.attending_count ?? 0), 0);
   const totalNotAttending = groups.filter((g) => g.rsvp_status === "not_attending").length;
   const totalPending      = groups.filter((g) => g.rsvp_status === "pending").length;
   const responded         = groups.filter((g) => g.rsvp_status !== "pending").length;
@@ -255,10 +265,8 @@ export default function Admin() {
                   groups.map((gr) => (
                     <tr key={gr.group_name} className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors align-top">
 
-                      {/* Invitation / group name */}
                       <td className="px-4 py-4 font-serif whitespace-nowrap">{gr.group_name}</td>
 
-                      {/* Members list */}
                       <td className="px-4 py-4 max-w-[200px]">
                         <div className="flex flex-col gap-1">
                           {gr.members.map((m) => (
@@ -272,7 +280,7 @@ export default function Admin() {
                       <td className="px-4 py-4 text-center">{gr.allowed_guests}</td>
 
                       <td className="px-4 py-4">
-                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${statusBadge[gr.rsvp_status]}`}>
+                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${statusBadge[gr.rsvp_status] ?? ""}`}>
                           {gr.rsvp_status.replace("_", " ")}
                         </span>
                       </td>

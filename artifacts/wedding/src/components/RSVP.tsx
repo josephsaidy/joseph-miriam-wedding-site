@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { supabase, type Guest } from "@/lib/supabase";
-import { findMatches } from "@/lib/fuzzy";
+import { findMatches, type MatchResult } from "@/lib/fuzzy";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -25,12 +25,6 @@ interface SearchCandidate {
   id: string;
   full_name: string;
   normalized_name: string;
-}
-
-interface MatchResult {
-  guestId: string;
-  fullName: string;
-  score: number;
 }
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
@@ -43,7 +37,7 @@ const rsvpSchema = z.object({
   attendance: z.enum(["attending", "not_attending"], {
     required_error: "Please let us know if you can make it",
   }),
-  attending_count: z.coerce.number().min(1).max(50),
+  attending_count: z.coerce.number().int().min(1),
   guest_message: z.string().optional(),
   dietary_restrictions: z.string().optional(),
 });
@@ -64,12 +58,12 @@ const labelBase = "uppercase tracking-widest text-xs text-muted-foreground";
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function RSVP() {
-  const [step, setStep]               = useState<Step>("search");
-  const [matches, setMatches]         = useState<MatchResult[]>([]);
-  const [matchedGuest, setMatchedGuest] = useState<Guest | null>(null); // the person who searched
-  const [group, setGroup]             = useState<Guest[]>([]);          // full invitation group
-  const [isLoading, setIsLoading]     = useState(false);
-  const [errorMsg, setErrorMsg]       = useState<string | null>(null);
+  const [step, setStep]                 = useState<Step>("search");
+  const [matches, setMatches]           = useState<MatchResult[]>([]);
+  const [matchedGuest, setMatchedGuest] = useState<Guest | null>(null);
+  const [group, setGroup]               = useState<Guest[]>([]);
+  const [isLoading, setIsLoading]       = useState(false);
+  const [errorMsg, setErrorMsg]         = useState<string | null>(null);
 
   const searchForm = useForm<SearchValues>({
     resolver: zodResolver(searchSchema),
@@ -84,7 +78,7 @@ export default function RSVP() {
   const attendance = rsvpForm.watch("attendance");
 
   // The group leader determines the allowed_guests cap
-  const groupLeader = group.find((m) => m.is_group_leader) ?? group[0];
+  const groupLeader   = group.find((m) => m.is_group_leader) ?? group[0];
   const allowedGuests = groupLeader?.allowed_guests ?? 1;
 
   // ── Step 1: Search ──────────────────────────────────────────────────────────
@@ -96,7 +90,7 @@ export default function RSVP() {
       if (error) throw error;
 
       const candidates = (data as SearchCandidate[]) ?? [];
-      const results = findMatches(query, candidates);
+      const results    = findMatches(query, candidates);
 
       if (results.length === 0) {
         setStep("not_found");
@@ -139,6 +133,15 @@ export default function RSVP() {
   // ── Step 3: Submit RSVP for the whole group ─────────────────────────────────
   async function onSubmit(values: RSVPValues) {
     if (!matchedGuest) return;
+
+    // Client-side cap enforcement (mirrors the SQL-level check)
+    if (values.attendance === "attending" && values.attending_count > allowedGuests) {
+      rsvpForm.setError("attending_count", {
+        message: `Maximum ${allowedGuests} guest${allowedGuests !== 1 ? "s" : ""} for this invitation`,
+      });
+      return;
+    }
+
     setIsLoading(true);
     setErrorMsg(null);
     try {
