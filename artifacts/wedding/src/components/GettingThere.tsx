@@ -16,7 +16,15 @@ export default function GettingThere() {
             <h2 className="text-4xl md:text-5xl font-serif">Getting There</h2>
           </div>
 
-          <div className="bg-card text-card-foreground p-10 md:p-16 rounded-xl shadow-lg border border-border inline-block w-full max-w-2xl text-left">
+          <div className="w-full max-w-2xl overflow-hidden rounded-xl shadow-lg mb-0">
+            <img
+              src="/images/hotel-massabki.webp"
+              alt="Massabki Hotel, Chtoura"
+              className="w-full h-64 object-cover"
+            />
+          </div>
+
+          <div className="bg-card text-card-foreground p-10 md:p-16 rounded-b-xl rounded-t-none shadow-lg border border-border border-t-0 inline-block w-full max-w-2xl text-left">
             <div className="space-y-8">
               <div>
                 <h3 className="text-2xl font-serif mb-2">Massabki Hotel</h3>

@@ -37,13 +37,13 @@ export default function Hero() {
           className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-6 auto-rows-fr"
         >
           <div className="relative aspect-[3/4] md:mt-12 rounded-lg overflow-hidden shadow-xl">
-            <img src="/images/hero-1.png" alt="Joseph & Miriam" className="object-cover w-full h-full hover:scale-105 transition-transform duration-700" />
+            <img src="/images/hero1.jpg" alt="Joseph & Miriam" className="object-cover w-full h-full hover:scale-105 transition-transform duration-700" />
           </div>
           <div className="relative aspect-[4/5] rounded-lg overflow-hidden shadow-xl">
-            <img src="/images/hero-2.png" alt="Joseph & Miriam" className="object-cover w-full h-full hover:scale-105 transition-transform duration-700" />
+            <img src="/images/hero2.jpg" alt="Joseph & Miriam" className="object-cover w-full h-full hover:scale-105 transition-transform duration-700" />
           </div>
           <div className="relative aspect-[3/4] md:mt-24 rounded-lg overflow-hidden shadow-xl hidden md:block">
-            <img src="/images/hero-3.png" alt="Joseph & Miriam" className="object-cover w-full h-full hover:scale-105 transition-transform duration-700" />
+            <img src="/images/hero3.jpg" alt="Joseph & Miriam" className="object-cover w-full h-full hover:scale-105 transition-transform duration-700" />
           </div>
         </motion.div>
       </div>

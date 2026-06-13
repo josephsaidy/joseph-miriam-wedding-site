@@ -14,7 +14,7 @@ export default function Story() {
             className="w-full md:w-1/2"
           >
             <div className="relative aspect-[4/5] rounded-t-full overflow-hidden shadow-2xl">
-              <img src="/images/story.png" alt="Joseph & Miriam" className="object-cover w-full h-full" />
+              <img src="/images/our-story.jpg" alt="Joseph & Miriam" className="object-cover w-full h-full" />
               <div className="absolute inset-0 border border-primary/20 rounded-t-full m-4 pointer-events-none" />
             </div>
           </motion.div>
