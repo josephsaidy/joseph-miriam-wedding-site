@@ -105,6 +105,9 @@ export default function Admin() {
   const [loading, setLoading]       = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // Search/filter
+  const [filterQuery, setFilterQuery] = useState("");
+
   // Inline edit state
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
   const [editState, setEditState]       = useState<EditState>({
@@ -192,6 +195,19 @@ export default function Admin() {
   // ── Derived data ──────────────────────────────────────────────────────────
 
   const groups = buildGroups(guests);
+
+  const filteredGroups = filterQuery.trim()
+    ? groups.filter((gr) => {
+        const q = filterQuery.toLowerCase();
+        return (
+          gr.group_name.toLowerCase().includes(q) ||
+          gr.members.some((m) => m.full_name.toLowerCase().includes(q)) ||
+          gr.rsvp_status.includes(q) ||
+          (gr.guest_message ?? "").toLowerCase().includes(q) ||
+          (gr.dietary_restrictions ?? "").toLowerCase().includes(q)
+        );
+      })
+    : groups;
 
   const totalInvited      = groups.reduce((s, g) => s + g.allowed_guests, 0);
   const totalAttending    = groups.filter((g) => g.rsvp_status === "attending").reduce((s, g) => s + (g.attending_count ?? 0), 0);
@@ -289,6 +305,33 @@ export default function Admin() {
 
         {fetchError && <p className="text-red-500 text-sm">{fetchError}</p>}
 
+        {/* Search / filter */}
+        <div className="relative">
+          <input
+            type="text"
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            placeholder="Search by name, group, status, message…"
+            className="w-full border-b-2 border-border bg-transparent py-3 pr-10 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+          />
+          {filterQuery ? (
+            <button
+              onClick={() => setFilterQuery("")}
+              className="absolute right-0 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-lg leading-none px-2"
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          ) : (
+            <span className="absolute right-0 top-1/2 -translate-y-1/2 text-muted-foreground text-sm px-2 pointer-events-none">⌕</span>
+          )}
+          {filterQuery && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {filteredGroups.length} of {groups.length} group{groups.length !== 1 ? "s" : ""}
+            </p>
+          )}
+        </div>
+
         {/* Table */}
         {loading ? (
           <p className="text-center text-muted-foreground font-light py-12">Loading…</p>
@@ -305,14 +348,14 @@ export default function Admin() {
                 </tr>
               </thead>
               <tbody>
-                {groups.length === 0 ? (
+                {filteredGroups.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="text-center py-12 text-muted-foreground font-light">
-                      No guests found. Import the guest list into Supabase first.
+                      {filterQuery ? "No groups match your search." : "No guests found. Import the guest list into Supabase first."}
                     </td>
                   </tr>
                 ) : (
-                  groups.map((gr) => {
+                  filteredGroups.map((gr) => {
                     const isEditing = editingGroup === gr.group_name;
 
                     return (
