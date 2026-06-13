@@ -20,7 +20,7 @@ export default function GettingThere() {
             <img
               src="/images/hotel-massabki.webp"
               alt="Massabki Hotel, Chtoura"
-              className="w-full h-64 object-cover"
+              className="w-full h-64 object-cover object-top"
             />
           </div>
 
