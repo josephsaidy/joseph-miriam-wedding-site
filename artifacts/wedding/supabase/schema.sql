@@ -21,14 +21,11 @@ CREATE TABLE IF NOT EXISTS guests (
 );
 
 -- 2. GUEST ALIASES TABLE (multiple search names per invitation)
---    Each row is one searchable name that resolves to a household row in guests.
---    Example: "Joseph Saidy", "Miriam Saidy", and "Joseph & Miriam Saidy"
---    all have guest_id pointing to the same guests row.
 CREATE TABLE IF NOT EXISTS guest_aliases (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   guest_id        UUID NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
-  alias           TEXT NOT NULL,      -- display form, e.g. "Joseph Saidy"
-  normalized_alias TEXT NOT NULL      -- lowercase, punctuation-stripped
+  alias           TEXT NOT NULL,
+  normalized_alias TEXT NOT NULL
 );
 
 -- 3. INDEXES
@@ -54,34 +51,167 @@ CREATE TRIGGER guests_updated_at
 ALTER TABLE guests        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE guest_aliases ENABLE ROW LEVEL SECURITY;
 
--- Guests: anon can read (filtered via RPC) and update RSVP fields
 CREATE POLICY "guests_select" ON guests FOR SELECT TO anon USING (true);
 CREATE POLICY "guests_update" ON guests FOR UPDATE TO anon USING (true) WITH CHECK (true);
-
--- Aliases: anon can read (via RPC only)
 CREATE POLICY "aliases_select" ON guest_aliases FOR SELECT TO anon USING (true);
 
--- 6. RPC: SEARCH — returns a flat list of (guest_id, display_name, normalized)
---    Sources: the household's own name + every alias row.
---    The frontend fuzzy-matches against this list; guest_id always points to guests.id
---    so get_guest_by_id always works regardless of which name matched.
+-- 6. HELPER: normalize a text string (lowercase, strip punctuation, collapse spaces)
+CREATE OR REPLACE FUNCTION normalize_text(input TEXT)
+RETURNS TEXT
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT lower(trim(regexp_replace(
+    regexp_replace(input, '[^a-zA-Z\s]', ' ', 'g'),
+    '\s+', ' ', 'g'
+  )));
+$$;
+
+-- 7. AUTO-GENERATE ALIASES from full_name
+--
+--    Handles these patterns:
+--      "FirstA & FirstB LastName"  → FirstA LastName, FirstB LastName,
+--                                    FirstA FirstB, FirstB FirstA,
+--                                    FirstA and FirstB LastName,
+--                                    FirstB & FirstA LastName, etc.
+--      "FirstA and FirstB LastName"→ same as above
+--      "FirstA LastName Family"    → FirstA LastName, FirstA Family
+--      Single names               → just the full_name itself
+--
+--    Rules:
+--      - Never deletes manually added aliases
+--      - Skips duplicates (by normalized_alias per guest)
+--      - Returns the number of new aliases inserted
+--
+CREATE OR REPLACE FUNCTION generate_guest_aliases()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  g               RECORD;
+  new_aliases     TEXT[] := ARRAY[]::TEXT[];
+  alias_text      TEXT;
+  normalized      TEXT;
+  inserted_count  INTEGER := 0;
+
+  -- parsing
+  clean_name      TEXT;
+  tokens          TEXT[];
+  first1          TEXT;
+  first2          TEXT;
+  last_name       TEXT;
+BEGIN
+  FOR g IN SELECT id, full_name FROM guests LOOP
+    new_aliases := ARRAY[]::TEXT[];
+
+    -- Always include the exact full_name
+    new_aliases := array_append(new_aliases, g.full_name);
+
+    -- ── Pattern: connector name (& or " and ") ──────────────────────────────
+    IF g.full_name ~ '&' OR g.full_name ~* '\s+and\s+' THEN
+
+      -- Normalise & ↔ and so we handle both the same way
+      clean_name := regexp_replace(g.full_name, '\s*&\s*|\s+and\s+', ' & ', 'gi');
+
+      -- Tokenise without the & symbol
+      tokens := array_remove(
+        string_to_array(regexp_replace(clean_name, '\s*&\s*', ' ', 'g'), ' '),
+        ''
+      );
+
+      IF array_length(tokens, 1) >= 3 THEN
+        -- Assume: FirstA FirstB … LastName  (last token = shared surname)
+        first1    := tokens[1];
+        last_name := tokens[array_length(tokens, 1)];
+        -- second-to-last token = second first name
+        first2    := tokens[array_length(tokens, 1) - 1];
+
+        -- Individual names
+        new_aliases := array_append(new_aliases, first1 || ' ' || last_name);
+        new_aliases := array_append(new_aliases, first2 || ' ' || last_name);
+
+        -- First names only (no last name)
+        new_aliases := array_append(new_aliases, first1 || ' ' || first2);
+        new_aliases := array_append(new_aliases, first2 || ' ' || first1);
+
+        -- Ampersand variants
+        new_aliases := array_append(new_aliases, first1 || ' & ' || first2 || ' ' || last_name);
+        new_aliases := array_append(new_aliases, first2 || ' & ' || first1 || ' ' || last_name);
+
+        -- "and" word variants
+        new_aliases := array_append(new_aliases, first1 || ' and ' || first2 || ' ' || last_name);
+        new_aliases := array_append(new_aliases, first2 || ' and ' || first1 || ' ' || last_name);
+
+      ELSIF array_length(tokens, 1) = 2 THEN
+        -- Two first names, no shared last name
+        first1 := tokens[1];
+        first2 := tokens[2];
+
+        new_aliases := array_append(new_aliases, first1 || ' ' || first2);
+        new_aliases := array_append(new_aliases, first2 || ' ' || first1);
+        new_aliases := array_append(new_aliases, first1 || ' & ' || first2);
+        new_aliases := array_append(new_aliases, first2 || ' & ' || first1);
+        new_aliases := array_append(new_aliases, first1 || ' and ' || first2);
+        new_aliases := array_append(new_aliases, first2 || ' and ' || first1);
+      END IF;
+    END IF;
+
+    -- ── Pattern: "… Family" suffix ──────────────────────────────────────────
+    IF g.full_name ~* '\bfamily\b' THEN
+      -- Version without "Family"
+      clean_name := trim(regexp_replace(g.full_name, '\s*\bfamily\b\s*$', '', 'gi'));
+      IF clean_name <> g.full_name AND length(clean_name) > 0 THEN
+        new_aliases := array_append(new_aliases, clean_name);
+      END IF;
+
+      -- "FirstName Family" (just the first token + Family)
+      tokens := array_remove(string_to_array(g.full_name, ' '), '');
+      IF array_length(tokens, 1) >= 2 THEN
+        new_aliases := array_append(new_aliases, tokens[1] || ' Family');
+      END IF;
+    END IF;
+
+    -- ── Insert each candidate alias, skipping duplicates ────────────────────
+    FOREACH alias_text IN ARRAY new_aliases LOOP
+      alias_text := trim(alias_text);
+      CONTINUE WHEN length(alias_text) < 2;
+
+      normalized := normalize_text(alias_text);
+
+      IF NOT EXISTS (
+        SELECT 1 FROM guest_aliases
+        WHERE guest_id = g.id AND normalized_alias = normalized
+      ) THEN
+        INSERT INTO guest_aliases (guest_id, alias, normalized_alias)
+        VALUES (g.id, alias_text, normalized);
+        inserted_count := inserted_count + 1;
+      END IF;
+    END LOOP;
+
+  END LOOP;
+
+  RETURN inserted_count;
+END;
+$$;
+
+-- 8. RPC: SEARCH — returns flat list for fuzzy matching
+--    Both the household's own name and every alias row map back to guests.id
 CREATE OR REPLACE FUNCTION search_guests_for_rsvp()
 RETURNS TABLE (id UUID, full_name TEXT, normalized_name TEXT)
 LANGUAGE sql
 SECURITY DEFINER
 AS $$
-  -- The household's primary display name
   SELECT g.id, g.full_name, g.normalized_name
   FROM guests g
 
   UNION ALL
 
-  -- Every alias row, but returning the household guest_id as "id"
   SELECT a.guest_id AS id, a.alias AS full_name, a.normalized_alias AS normalized_name
   FROM guest_aliases a;
 $$;
 
--- 7. RPC: SUBMIT RSVP
+-- 9. RPC: SUBMIT RSVP
 CREATE OR REPLACE FUNCTION submit_rsvp(
   p_id                   UUID,
   p_rsvp_status          TEXT,
@@ -118,7 +248,7 @@ BEGIN
 END;
 $$;
 
--- 8. RPC: GET GUEST BY ID (always uses guests.id — aliases resolve via UNION above)
+-- 10. RPC: GET GUEST BY ID
 CREATE OR REPLACE FUNCTION get_guest_by_id(p_id UUID)
 RETURNS guests
 LANGUAGE sql
@@ -127,7 +257,9 @@ AS $$
   SELECT * FROM guests WHERE id = p_id LIMIT 1;
 $$;
 
--- 9. GRANT RPC access to anon
+-- 11. GRANT RPC access to anon
+GRANT EXECUTE ON FUNCTION normalize_text(TEXT)                                TO anon;
+GRANT EXECUTE ON FUNCTION generate_guest_aliases()                            TO anon;
 GRANT EXECUTE ON FUNCTION search_guests_for_rsvp()                           TO anon;
 GRANT EXECUTE ON FUNCTION submit_rsvp(UUID, TEXT, INTEGER, TEXT, TEXT)        TO anon;
 GRANT EXECUTE ON FUNCTION get_guest_by_id(UUID)                               TO anon;

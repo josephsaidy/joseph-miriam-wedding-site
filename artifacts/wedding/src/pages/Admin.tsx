@@ -45,10 +45,12 @@ export default function Admin() {
   const [authed, setAuthed]       = useState(false);
   const [password, setPassword]   = useState("");
   const [authError, setAuthError] = useState(false);
-  const [guests, setGuests]       = useState<Guest[]>([]);
-  const [aliasMap, setAliasMap]   = useState<Record<string, string[]>>({});
-  const [loading, setLoading]     = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [guests, setGuests]           = useState<Guest[]>([]);
+  const [aliasMap, setAliasMap]       = useState<Record<string, string[]>>({});
+  const [loading, setLoading]         = useState(false);
+  const [fetchError, setFetchError]   = useState<string | null>(null);
+  const [generating, setGenerating]   = useState(false);
+  const [generateMsg, setGenerateMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (sessionStorage.getItem("rsvp_admin") === "1") setAuthed(true);
@@ -57,6 +59,21 @@ export default function Admin() {
   useEffect(() => {
     if (authed) loadData();
   }, [authed]);
+
+  async function generateAliases() {
+    setGenerating(true);
+    setGenerateMsg(null);
+    try {
+      const { data, error } = await supabase.rpc("generate_guest_aliases");
+      if (error) throw error;
+      setGenerateMsg(`Done — ${data as number} new alias${(data as number) === 1 ? "" : "es"} added.`);
+      await loadData();
+    } catch (err: unknown) {
+      setGenerateMsg(err instanceof Error ? err.message : "Failed to generate aliases.");
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   async function loadData() {
     setLoading(true);
@@ -185,7 +202,21 @@ export default function Admin() {
         </div>
 
         {/* Actions */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-end">
+        <div className="flex flex-col sm:flex-row gap-4 justify-end items-start sm:items-center flex-wrap">
+          <div className="flex flex-col gap-1 mr-auto">
+            <button
+              onClick={generateAliases}
+              disabled={generating}
+              className="border border-foreground text-foreground font-serif py-3 px-6 hover:bg-foreground hover:text-background transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {generating ? "Generating…" : "Generate Aliases"}
+            </button>
+            {generateMsg && (
+              <p className={`text-xs px-1 ${generateMsg.startsWith("Done") ? "text-green-700" : "text-red-500"}`}>
+                {generateMsg}
+              </p>
+            )}
+          </div>
           <button
             onClick={loadData}
             className="border border-foreground text-foreground font-serif py-3 px-6 hover:bg-foreground hover:text-background transition-all duration-300"
