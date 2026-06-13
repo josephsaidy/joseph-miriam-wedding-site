@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { supabase, type Guest } from "@/lib/supabase";
-import { findMatches, normalizeName } from "@/lib/fuzzy";
+import { findMatches } from "@/lib/fuzzy";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -43,7 +43,7 @@ const rsvpSchema = z.object({
   attendance: z.enum(["attending", "not_attending"], {
     required_error: "Please let us know if you can make it",
   }),
-  attending_count: z.coerce.number().min(1).max(20),
+  attending_count: z.coerce.number().min(1).max(50),
   guest_message: z.string().optional(),
   dietary_restrictions: z.string().optional(),
 });
@@ -51,7 +51,7 @@ const rsvpSchema = z.object({
 type SearchValues = z.infer<typeof searchSchema>;
 type RSVPValues = z.infer<typeof rsvpSchema>;
 
-// ─── Inline styles matching existing site palette ────────────────────────────
+// ─── Styles matching existing site palette ────────────────────────────────────
 
 const btnPrimary =
   "w-full bg-foreground text-background font-serif py-4 px-6 hover:bg-primary hover:text-primary-foreground transition-all duration-300 text-lg disabled:opacity-50 disabled:cursor-not-allowed";
@@ -64,11 +64,12 @@ const labelBase = "uppercase tracking-widest text-xs text-muted-foreground";
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function RSVP() {
-  const [step, setStep] = useState<Step>("search");
-  const [matches, setMatches] = useState<MatchResult[]>([]);
-  const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [step, setStep]               = useState<Step>("search");
+  const [matches, setMatches]         = useState<MatchResult[]>([]);
+  const [matchedGuest, setMatchedGuest] = useState<Guest | null>(null); // the person who searched
+  const [group, setGroup]             = useState<Guest[]>([]);          // full invitation group
+  const [isLoading, setIsLoading]     = useState(false);
+  const [errorMsg, setErrorMsg]       = useState<string | null>(null);
 
   const searchForm = useForm<SearchValues>({
     resolver: zodResolver(searchSchema),
@@ -82,13 +83,15 @@ export default function RSVP() {
 
   const attendance = rsvpForm.watch("attendance");
 
-  // ── Step 1: Search guest list ──────────────────────────────────────────────
+  // The group leader determines the allowed_guests cap
+  const groupLeader = group.find((m) => m.is_group_leader) ?? group[0];
+  const allowedGuests = groupLeader?.allowed_guests ?? 1;
+
+  // ── Step 1: Search ──────────────────────────────────────────────────────────
   async function onSearch({ query }: SearchValues) {
     setIsLoading(true);
     setErrorMsg(null);
-
     try {
-      // Fetch only id + names via secure RPC (no full list exposed)
       const { data, error } = await supabase.rpc("search_guests_for_rsvp");
       if (error) throw error;
 
@@ -109,18 +112,21 @@ export default function RSVP() {
     }
   }
 
-  // ── Step 2: Guest confirms their name ─────────────────────────────────────
+  // ── Step 2: Confirm match → load the full group ─────────────────────────────
   async function onConfirm(guestId: string) {
     setIsLoading(true);
     setErrorMsg(null);
-
     try {
-      const { data, error } = await supabase.rpc("get_guest_by_id", { p_id: guestId });
+      const { data, error } = await supabase.rpc("get_group_by_guest_id", { p_id: guestId });
       if (error) throw error;
 
-      const guest = data as Guest;
-      setSelectedGuest(guest);
-      rsvpForm.setValue("attending_count", guest.allowed_guests);
+      const members = (data as Guest[]) ?? [];
+      if (members.length === 0) throw new Error("Group not found.");
+
+      const me = members.find((m) => m.id === guestId) ?? members[0];
+      setMatchedGuest(me);
+      setGroup(members);
+      rsvpForm.setValue("attending_count", me.allowed_guests);
       setStep("form");
     } catch (err) {
       setErrorMsg("Something went wrong. Please try again.");
@@ -130,22 +136,19 @@ export default function RSVP() {
     }
   }
 
-  // ── Step 3: Submit RSVP ───────────────────────────────────────────────────
+  // ── Step 3: Submit RSVP for the whole group ─────────────────────────────────
   async function onSubmit(values: RSVPValues) {
-    if (!selectedGuest) return;
+    if (!matchedGuest) return;
     setIsLoading(true);
     setErrorMsg(null);
-
     try {
       const { error } = await supabase.rpc("submit_rsvp", {
-        p_id: selectedGuest.id,
-        p_rsvp_status: values.attendance,
-        p_attending_count:
-          values.attendance === "not_attending" ? 0 : values.attending_count,
-        p_guest_message: values.guest_message ?? "",
+        p_id:                   matchedGuest.id,
+        p_rsvp_status:          values.attendance,
+        p_attending_count:      values.attendance === "not_attending" ? 0 : values.attending_count,
+        p_guest_message:        values.guest_message ?? "",
         p_dietary_restrictions: values.dietary_restrictions ?? "",
       });
-
       if (error) throw error;
       setStep("success");
     } catch (err) {
@@ -159,13 +162,14 @@ export default function RSVP() {
   function restart() {
     setStep("search");
     setMatches([]);
-    setSelectedGuest(null);
+    setMatchedGuest(null);
+    setGroup([]);
     setErrorMsg(null);
     searchForm.reset();
     rsvpForm.reset();
   }
 
-  // ─── Render ──────────────────────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <section id="rsvp" className="py-24 md:py-32 bg-secondary text-secondary-foreground relative">
@@ -177,7 +181,6 @@ export default function RSVP() {
           transition={{ duration: 0.8 }}
           className="bg-card text-card-foreground p-10 md:p-16 rounded-xl shadow-xl border border-border"
         >
-          {/* Section heading — always visible unless success */}
           {step !== "success" && (
             <div className="text-center space-y-4 mb-12">
               <span className="uppercase tracking-[0.2em] text-sm text-primary">Join Us</span>
@@ -188,7 +191,7 @@ export default function RSVP() {
 
           <AnimatePresence mode="wait">
 
-            {/* ── STEP: SEARCH ── */}
+            {/* ── SEARCH ── */}
             {step === "search" && (
               <motion.div key="search" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <Form {...searchForm}>
@@ -200,11 +203,7 @@ export default function RSVP() {
                         <FormItem>
                           <FormLabel className={labelBase}>Your Full Name</FormLabel>
                           <FormControl>
-                            <Input
-                              placeholder="e.g. Joseph Saidy"
-                              className={inputBase}
-                              {...field}
-                            />
+                            <Input placeholder="e.g. Joseph Saidy" className={inputBase} {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -219,11 +218,11 @@ export default function RSVP() {
               </motion.div>
             )}
 
-            {/* ── STEP: CONFIRM MATCH ── */}
+            {/* ── CONFIRM ── */}
             {step === "confirm" && (
               <motion.div key="confirm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-8">
                 <p className="text-center text-muted-foreground font-light">
-                  {matches.length === 1 ? "We found you on the guest list:" : "Did you mean one of these?"}
+                  {matches.length === 1 ? "Is this you?" : "Did you mean one of these?"}
                 </p>
                 <div className="space-y-4">
                   {matches.map((m) => (
@@ -238,19 +237,27 @@ export default function RSVP() {
                   ))}
                 </div>
                 {errorMsg && <p className="text-sm text-red-500">{errorMsg}</p>}
-                <button onClick={restart} className="w-full text-sm text-muted-foreground underline underline-offset-4 mt-2">
+                <button onClick={restart} className="w-full text-sm text-muted-foreground underline underline-offset-4">
                   That's not me — search again
                 </button>
               </motion.div>
             )}
 
-            {/* ── STEP: RSVP FORM ── */}
-            {step === "form" && selectedGuest && (
+            {/* ── FORM ── */}
+            {step === "form" && matchedGuest && (
               <motion.div key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <p className="text-center text-muted-foreground font-light mb-10">
-                  Welcome, <span className="font-serif text-foreground text-xl">{selectedGuest.full_name}</span>
-                  {selectedGuest.party_name ? ` — ${selectedGuest.party_name}` : ""}
-                </p>
+                {/* Group summary */}
+                <div className="text-center mb-10 space-y-2">
+                  <p className="text-muted-foreground font-light">
+                    Invitation for{" "}
+                    <span className="font-serif text-foreground text-xl">{matchedGuest.group_name}</span>
+                  </p>
+                  {group.length > 1 && (
+                    <p className="text-sm text-muted-foreground">
+                      {group.map((m) => m.full_name).join(" · ")}
+                    </p>
+                  )}
+                </div>
 
                 <Form {...rsvpForm}>
                   <form onSubmit={rsvpForm.handleSubmit(onSubmit)} className="space-y-8">
@@ -262,26 +269,14 @@ export default function RSVP() {
                         <FormItem className="space-y-4">
                           <FormLabel className={labelBase}>Will you attend?</FormLabel>
                           <FormControl>
-                            <RadioGroup
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
-                              className="flex flex-col sm:flex-row gap-4"
-                            >
+                            <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex flex-col sm:flex-row gap-4">
                               <FormItem className="flex items-center space-x-3 space-y-0">
-                                <FormControl>
-                                  <RadioGroupItem value="attending" />
-                                </FormControl>
-                                <FormLabel className="font-serif text-lg font-normal cursor-pointer">
-                                  Joyfully Accepts
-                                </FormLabel>
+                                <FormControl><RadioGroupItem value="attending" /></FormControl>
+                                <FormLabel className="font-serif text-lg font-normal cursor-pointer">Joyfully Accepts</FormLabel>
                               </FormItem>
                               <FormItem className="flex items-center space-x-3 space-y-0">
-                                <FormControl>
-                                  <RadioGroupItem value="not_attending" />
-                                </FormControl>
-                                <FormLabel className="font-serif text-lg font-normal cursor-pointer">
-                                  Regretfully Declines
-                                </FormLabel>
+                                <FormControl><RadioGroupItem value="not_attending" /></FormControl>
+                                <FormLabel className="font-serif text-lg font-normal cursor-pointer">Regretfully Declines</FormLabel>
                               </FormItem>
                             </RadioGroup>
                           </FormControl>
@@ -297,13 +292,13 @@ export default function RSVP() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className={labelBase}>
-                              Number of guests attending (max {selectedGuest.allowed_guests})
+                              Number of guests attending (max {allowedGuests})
                             </FormLabel>
                             <FormControl>
                               <Input
                                 type="number"
                                 min={1}
-                                max={selectedGuest.allowed_guests}
+                                max={allowedGuests}
                                 className={`${inputBase} w-24`}
                                 {...field}
                               />
@@ -321,11 +316,7 @@ export default function RSVP() {
                         <FormItem>
                           <FormLabel className={labelBase}>Message to Joseph & Miriam</FormLabel>
                           <FormControl>
-                            <Textarea
-                              placeholder="Leave a note for the couple…"
-                              className={`resize-none ${inputBase} min-h-[80px]`}
-                              {...field}
-                            />
+                            <Textarea placeholder="Leave a note for the couple…" className={`resize-none ${inputBase} min-h-[80px]`} {...field} />
                           </FormControl>
                         </FormItem>
                       )}
@@ -338,11 +329,7 @@ export default function RSVP() {
                         <FormItem>
                           <FormLabel className={labelBase}>Dietary restrictions</FormLabel>
                           <FormControl>
-                            <Input
-                              placeholder="e.g. vegetarian, nut allergy…"
-                              className={inputBase}
-                              {...field}
-                            />
+                            <Input placeholder="e.g. vegetarian, nut allergy…" className={inputBase} {...field} />
                           </FormControl>
                         </FormItem>
                       )}
@@ -360,13 +347,13 @@ export default function RSVP() {
               </motion.div>
             )}
 
-            {/* ── STEP: SUCCESS ── */}
+            {/* ── SUCCESS ── */}
             {step === "success" && (
               <motion.div key="success" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="text-center py-12 space-y-6">
                 <h3 className="text-4xl font-serif text-primary italic">Thank You!</h3>
                 <p className="text-lg text-muted-foreground font-light leading-relaxed">
                   Your RSVP has been received.<br />
-                  {selectedGuest?.rsvp_status !== "not_attending"
+                  {rsvpForm.getValues("attendance") !== "not_attending"
                     ? "We can't wait to celebrate with you."
                     : "We'll miss you, and hope to see you soon."}
                 </p>
@@ -376,7 +363,7 @@ export default function RSVP() {
               </motion.div>
             )}
 
-            {/* ── STEP: NOT FOUND ── */}
+            {/* ── NOT FOUND ── */}
             {step === "not_found" && (
               <motion.div key="not_found" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center space-y-6 py-4">
                 <p className="text-lg text-muted-foreground font-light leading-relaxed">

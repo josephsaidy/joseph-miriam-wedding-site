@@ -13,88 +13,66 @@
 3. Click **Run**
 
 This creates:
-- `guests` table — one row per invitation/household
-- `guest_aliases` table — multiple searchable names per household
-- `normalize_text()` helper function
-- `generate_guest_aliases()` — auto-generates aliases from full_name
-- `search_guests_for_rsvp()`, `submit_rsvp()`, `get_guest_by_id()` RPCs
+- `guests` table — one row per person
+- `search_guests_for_rsvp()` — RPC for guest name search
+- `get_group_by_guest_id()` — loads everyone in the same invitation group
+- `submit_rsvp()` — updates all group members at once
 - Row Level Security policies
 
 ## 3. Import Your Guest List
 
-### Step A — Prepare `sample-guests.csv`
+### Prepare `sample-guests.csv`
 
-Edit `supabase/sample-guests.csv` with your real households. Each row = one invitation.
+Each row = one person. Use `group_name` to link people in the same invitation.
 
 ```
-full_name,party_name,allowed_guests
-Joseph & Miriam Saidy,Saidy Household,2
-Georges & Joelle Hayek,Hayek Household,4
-Tony Saidy Family,Saidy Family,6
+full_name,normalized_name,group_name,is_group_leader,allowed_guests,rsvp_status
+Joseph Saidy,joseph saidy,Joseph & Miriam,true,2,pending
+Miriam Saidy,miriam saidy,Joseph & Miriam,false,2,pending
+Georges Saidy,georges saidy,Georges & Joelle,true,4,pending
+Joelle Saidy,joelle saidy,Georges & Joelle,false,4,pending
+Rami Khalil,rami khalil,Rami Khalil,true,2,pending
 ```
 
-**Tips for `full_name`:**
-- Use `FirstA & FirstB LastName` for couples — aliases will be auto-generated
-- Use `Name Family` for family invitations — aliases will be auto-generated
-- This is the display name guests will see after matching
+**Rules:**
+- `full_name` — the person's individual name (what they search)
+- `normalized_name` — lowercase, no punctuation (e.g. `joseph saidy`)
+- `group_name` — shared by everyone in the same invitation (shown to guests on the site)
+- `is_group_leader` — set `true` for one person per group (the primary contact)
+- `allowed_guests` — same value for everyone in the group (total seats for the invitation)
+- `rsvp_status` — always `pending` on import
 
-### Step B — Import the CSV into Supabase
+### Import via Supabase Table Editor
 
 1. In Supabase → **Table Editor** → `guests` → **Import data from CSV**
-2. Upload the file and map columns: `full_name`, `party_name`, `allowed_guests`
+2. Upload your CSV and map all columns
 3. Click **Import**
 
-### Step C — Populate normalized_name
+### Tip: Generate normalized_name automatically after import
 
-After importing, run this in the SQL Editor:
+If you skipped filling in `normalized_name`, run this in the SQL Editor:
 
 ```sql
 UPDATE guests
-SET normalized_name = normalize_text(full_name);
+SET normalized_name = lower(trim(regexp_replace(
+  regexp_replace(full_name, '[^a-zA-Z\s]', ' ', 'g'),
+  '\s+', ' ', 'g'
+)));
 ```
-
-### Step D — Auto-generate aliases
-
-**Option 1 (easiest): Use the Admin Dashboard**
-1. Go to `/admin` on your wedding site
-2. Log in with your `VITE_ADMIN_PASSWORD`
-3. Click the **"Generate Aliases"** button
-4. Done — aliases appear instantly in the Search Names column
-
-**Option 2: Run directly in Supabase SQL Editor**
-```sql
-SELECT generate_guest_aliases();
-```
-The function returns the number of new aliases inserted.
-
----
-
-## What aliases are auto-generated?
-
-| `full_name` | Auto-generated aliases |
-|---|---|
-| `Joseph & Miriam Saidy` | Joseph Saidy, Miriam Saidy, Joseph Miriam, Miriam Joseph, Joseph and Miriam Saidy, Miriam & Joseph Saidy, Miriam and Joseph Saidy |
-| `Georges & Joelle Hayek` | Georges Hayek, Joelle Hayek, Georges Joelle, Joelle Georges, Georges and Joelle Hayek, Joelle & Georges Hayek … |
-| `Tony Saidy Family` | Tony Saidy, Tony Family |
-
-- The function **never deletes** manually added aliases — it only adds new ones
-- Running it multiple times is safe (skips duplicates by normalized form)
-
----
 
 ## 4. Test the RSVP Flow
 
 1. Open the wedding site and scroll to the RSVP section
-2. Type any of the generated search names (try "Joseph Saidy" or "Miriam Saidy")
-3. Both should surface the same household invitation
-4. Complete the RSVP form and verify the row updates in the Supabase Table Editor
+2. Type a guest name — both Joseph and Miriam will match their own rows
+3. After selecting their name, the site loads the whole group and shows both members
+4. Submitting the RSVP updates both rows in Supabase
 
 ## 5. Test the Admin Dashboard
 
 1. Go to `/admin`
 2. Log in with your `VITE_ADMIN_PASSWORD`
-3. Stats, guest table, and search names should all be visible
-4. Use **Export CSV** to download a full response list
+3. Guests are grouped by `group_name` — one row per invitation group
+4. Use **Export CSV** to download all responses
 
 ## 6. Deploy
 

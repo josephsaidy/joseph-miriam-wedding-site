@@ -1,16 +1,54 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { supabase, type Guest, type GuestAlias } from "@/lib/supabase";
+import { supabase, type Guest } from "@/lib/supabase";
 
 const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD ?? "";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface GroupRow {
+  group_name: string;
+  members: Guest[];
+  leader: Guest | undefined;
+  allowed_guests: number;
+  rsvp_status: string;         // derived from leader / first member
+  attending_count: number | null;
+  guest_message: string | null;
+  dietary_restrictions: string | null;
+  submitted_at: string | null;
+}
+
+function buildGroups(guests: Guest[]): GroupRow[] {
+  const map = new Map<string, Guest[]>();
+  for (const g of guests) {
+    if (!map.has(g.group_name)) map.set(g.group_name, []);
+    map.get(g.group_name)!.push(g);
+  }
+
+  return Array.from(map.entries())
+    .map(([group_name, members]) => {
+      const leader = members.find((m) => m.is_group_leader) ?? members[0];
+      return {
+        group_name,
+        members,
+        leader,
+        allowed_guests:       leader?.allowed_guests ?? 0,
+        rsvp_status:          leader?.rsvp_status ?? "pending",
+        attending_count:      leader?.attending_count ?? null,
+        guest_message:        leader?.guest_message ?? null,
+        dietary_restrictions: leader?.dietary_restrictions ?? null,
+        submitted_at:         leader?.submitted_at ?? null,
+      };
+    })
+    .sort((a, b) => a.group_name.localeCompare(b.group_name));
+}
+
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
-function exportCSV(guests: Guest[], aliasMap: Record<string, string[]>) {
+function exportCSV(groups: GroupRow[]) {
   const headers = [
-    "Full Name",
-    "Search Names",
-    "Party Name",
+    "Group Name",
+    "Members",
     "Allowed Guests",
     "RSVP Status",
     "Attending Count",
@@ -18,16 +56,15 @@ function exportCSV(guests: Guest[], aliasMap: Record<string, string[]>) {
     "Dietary Restrictions",
     "Submitted At",
   ];
-  const rows = guests.map((g) => [
-    g.full_name,
-    (aliasMap[g.id] ?? []).join(" | "),
-    g.party_name ?? "",
-    g.allowed_guests,
-    g.rsvp_status,
-    g.attending_count ?? "",
-    (g.guest_message ?? "").replace(/,/g, ";"),
-    (g.dietary_restrictions ?? "").replace(/,/g, ";"),
-    g.submitted_at ? new Date(g.submitted_at).toLocaleString() : "",
+  const rows = groups.map((gr) => [
+    gr.group_name,
+    gr.members.map((m) => m.full_name).join(" | "),
+    gr.allowed_guests,
+    gr.rsvp_status,
+    gr.attending_count ?? "",
+    (gr.guest_message ?? "").replace(/,/g, ";"),
+    (gr.dietary_restrictions ?? "").replace(/,/g, ";"),
+    gr.submitted_at ? new Date(gr.submitted_at).toLocaleString() : "",
   ]);
   const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
@@ -42,63 +79,34 @@ function exportCSV(guests: Guest[], aliasMap: Record<string, string[]>) {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function Admin() {
-  const [authed, setAuthed]       = useState(false);
-  const [password, setPassword]   = useState("");
-  const [authError, setAuthError] = useState(false);
-  const [guests, setGuests]           = useState<Guest[]>([]);
-  const [aliasMap, setAliasMap]       = useState<Record<string, string[]>>({});
-  const [loading, setLoading]         = useState(false);
-  const [fetchError, setFetchError]   = useState<string | null>(null);
-  const [generating, setGenerating]   = useState(false);
-  const [generateMsg, setGenerateMsg] = useState<string | null>(null);
+  const [authed, setAuthed]         = useState(false);
+  const [password, setPassword]     = useState("");
+  const [authError, setAuthError]   = useState(false);
+  const [guests, setGuests]         = useState<Guest[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     if (sessionStorage.getItem("rsvp_admin") === "1") setAuthed(true);
   }, []);
 
   useEffect(() => {
-    if (authed) loadData();
+    if (authed) loadGuests();
   }, [authed]);
 
-  async function generateAliases() {
-    setGenerating(true);
-    setGenerateMsg(null);
-    try {
-      const { data, error } = await supabase.rpc("generate_guest_aliases");
-      if (error) throw error;
-      setGenerateMsg(`Done — ${data as number} new alias${(data as number) === 1 ? "" : "es"} added.`);
-      await loadData();
-    } catch (err: unknown) {
-      setGenerateMsg(err instanceof Error ? err.message : "Failed to generate aliases.");
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function loadData() {
+  async function loadGuests() {
     setLoading(true);
     setFetchError(null);
     try {
-      // Load guests and aliases in parallel
-      const [guestsRes, aliasesRes] = await Promise.all([
-        supabase.from("guests").select("*").order("full_name"),
-        supabase.from("guest_aliases").select("guest_id, alias").order("alias"),
-      ]);
-
-      if (guestsRes.error) throw guestsRes.error;
-      if (aliasesRes.error) throw aliasesRes.error;
-
-      setGuests((guestsRes.data as Guest[]) ?? []);
-
-      // Build a map of guest_id → alias[]
-      const map: Record<string, string[]> = {};
-      for (const row of (aliasesRes.data as Pick<GuestAlias, "guest_id" | "alias">[]) ?? []) {
-        if (!map[row.guest_id]) map[row.guest_id] = [];
-        map[row.guest_id].push(row.alias);
-      }
-      setAliasMap(map);
+      const { data, error } = await supabase
+        .from("guests")
+        .select("*")
+        .order("group_name")
+        .order("is_group_leader", { ascending: false });
+      if (error) throw error;
+      setGuests((data as Guest[]) ?? []);
     } catch (err: unknown) {
-      setFetchError(err instanceof Error ? err.message : "Failed to load data.");
+      setFetchError(err instanceof Error ? err.message : "Failed to load guests.");
     } finally {
       setLoading(false);
     }
@@ -115,14 +123,16 @@ export default function Admin() {
     }
   }
 
-  // ── Stats ─────────────────────────────────────────────────────────────────
+  // ── Derived data ──────────────────────────────────────────────────────────
 
-  const totalInvited      = guests.reduce((s, g) => s + g.allowed_guests, 0);
-  const totalAttending    = guests.filter((g) => g.rsvp_status === "attending").reduce((s, g) => s + (g.attending_count ?? 0), 0);
-  const totalNotAttending = guests.filter((g) => g.rsvp_status === "not_attending").length;
-  const totalPending      = guests.filter((g) => g.rsvp_status === "pending").length;
-  const responded         = guests.filter((g) => g.rsvp_status !== "pending").length;
-  const responseRate      = guests.length > 0 ? Math.round((responded / guests.length) * 100) : 0;
+  const groups = buildGroups(guests);
+
+  const totalInvited      = groups.reduce((s, g) => s + g.allowed_guests, 0);
+  const totalAttending    = groups.filter((g) => g.rsvp_status === "attending").reduce((s, g) => s + (g.attending_count ?? 0), 0);
+  const totalNotAttending = groups.filter((g) => g.rsvp_status === "not_attending").length;
+  const totalPending      = groups.filter((g) => g.rsvp_status === "pending").length;
+  const responded         = groups.filter((g) => g.rsvp_status !== "pending").length;
+  const responseRate      = groups.length > 0 ? Math.round((responded / groups.length) * 100) : 0;
 
   const statusBadge: Record<string, string> = {
     pending:       "bg-yellow-100 text-yellow-800",
@@ -188,11 +198,11 @@ export default function Admin() {
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           {[
-            { label: "Invited",        value: totalInvited },
-            { label: "Attending",      value: totalAttending },
-            { label: "Not Attending",  value: totalNotAttending },
-            { label: "Pending",        value: totalPending },
-            { label: "Response Rate",  value: `${responseRate}%` },
+            { label: "Invited",       value: totalInvited },
+            { label: "Attending",     value: totalAttending },
+            { label: "Not Attending", value: totalNotAttending },
+            { label: "Pending",       value: totalPending },
+            { label: "Response Rate", value: `${responseRate}%` },
           ].map((s) => (
             <div key={s.label} className="bg-card border border-border rounded-xl p-6 text-center shadow-sm">
               <p className="text-3xl font-serif text-foreground">{s.value}</p>
@@ -202,29 +212,15 @@ export default function Admin() {
         </div>
 
         {/* Actions */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-end items-start sm:items-center flex-wrap">
-          <div className="flex flex-col gap-1 mr-auto">
-            <button
-              onClick={generateAliases}
-              disabled={generating}
-              className="border border-foreground text-foreground font-serif py-3 px-6 hover:bg-foreground hover:text-background transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {generating ? "Generating…" : "Generate Aliases"}
-            </button>
-            {generateMsg && (
-              <p className={`text-xs px-1 ${generateMsg.startsWith("Done") ? "text-green-700" : "text-red-500"}`}>
-                {generateMsg}
-              </p>
-            )}
-          </div>
+        <div className="flex flex-col sm:flex-row gap-4 justify-end">
           <button
-            onClick={loadData}
+            onClick={loadGuests}
             className="border border-foreground text-foreground font-serif py-3 px-6 hover:bg-foreground hover:text-background transition-all duration-300"
           >
             Refresh
           </button>
           <button
-            onClick={() => exportCSV(guests, aliasMap)}
+            onClick={() => exportCSV(groups)}
             className="bg-foreground text-background font-serif py-3 px-6 hover:bg-primary hover:text-primary-foreground transition-all duration-300"
           >
             Export CSV
@@ -241,7 +237,7 @@ export default function Admin() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  {["Household", "Search Names", "Party", "Allowed", "Status", "Attending", "Message", "Dietary", "Submitted"].map((h) => (
+                  {["Invitation", "Members", "Allowed", "Status", "Attending", "Message", "Dietary", "Submitted"].map((h) => (
                     <th key={h} className="text-left px-4 py-4 uppercase tracking-wider text-xs text-muted-foreground font-normal whitespace-nowrap">
                       {h}
                     </th>
@@ -249,47 +245,46 @@ export default function Admin() {
                 </tr>
               </thead>
               <tbody>
-                {guests.length === 0 ? (
+                {groups.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="text-center py-12 text-muted-foreground font-light">
+                    <td colSpan={8} className="text-center py-12 text-muted-foreground font-light">
                       No guests found. Import the guest list into Supabase first.
                     </td>
                   </tr>
                 ) : (
-                  guests.map((g) => {
-                    const aliases = aliasMap[g.id] ?? [];
-                    return (
-                      <tr key={g.id} className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors align-top">
-                        <td className="px-4 py-4 font-serif whitespace-nowrap">{g.full_name}</td>
-                        <td className="px-4 py-4 max-w-[220px]">
-                          {aliases.length === 0 ? (
-                            <span className="text-muted-foreground text-xs italic">none</span>
-                          ) : (
-                            <div className="flex flex-col gap-1">
-                              {aliases.map((a) => (
-                                <span key={a} className="inline-block bg-muted text-muted-foreground text-xs px-2 py-0.5 rounded-full whitespace-nowrap">
-                                  {a}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-4 text-muted-foreground whitespace-nowrap">{g.party_name ?? "—"}</td>
-                        <td className="px-4 py-4 text-center">{g.allowed_guests}</td>
-                        <td className="px-4 py-4">
-                          <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${statusBadge[g.rsvp_status]}`}>
-                            {g.rsvp_status.replace("_", " ")}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-center">{g.attending_count ?? "—"}</td>
-                        <td className="px-4 py-4 max-w-[200px] text-muted-foreground truncate">{g.guest_message || "—"}</td>
-                        <td className="px-4 py-4 max-w-[160px] text-muted-foreground truncate">{g.dietary_restrictions || "—"}</td>
-                        <td className="px-4 py-4 text-muted-foreground whitespace-nowrap">
-                          {g.submitted_at ? new Date(g.submitted_at).toLocaleDateString() : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })
+                  groups.map((gr) => (
+                    <tr key={gr.group_name} className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors align-top">
+
+                      {/* Invitation / group name */}
+                      <td className="px-4 py-4 font-serif whitespace-nowrap">{gr.group_name}</td>
+
+                      {/* Members list */}
+                      <td className="px-4 py-4 max-w-[200px]">
+                        <div className="flex flex-col gap-1">
+                          {gr.members.map((m) => (
+                            <span key={m.id} className="text-muted-foreground text-xs whitespace-nowrap">
+                              {m.full_name}{m.is_group_leader ? " ★" : ""}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-4 text-center">{gr.allowed_guests}</td>
+
+                      <td className="px-4 py-4">
+                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${statusBadge[gr.rsvp_status]}`}>
+                          {gr.rsvp_status.replace("_", " ")}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-4 text-center">{gr.attending_count ?? "—"}</td>
+                      <td className="px-4 py-4 max-w-[200px] text-muted-foreground truncate">{gr.guest_message || "—"}</td>
+                      <td className="px-4 py-4 max-w-[160px] text-muted-foreground truncate">{gr.dietary_restrictions || "—"}</td>
+                      <td className="px-4 py-4 text-muted-foreground whitespace-nowrap">
+                        {gr.submitted_at ? new Date(gr.submitted_at).toLocaleDateString() : "—"}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>

@@ -1,7 +1,9 @@
-full_name,party_name,allowed_guests
-Joseph & Miriam Saidy,Saidy Household,2
-Antoine & Carla Gemayel,Gemayel Household,4
-George & Sara Hayek,Hayek Household,3
-Rami Khalil,Khalil Family,2
-Nada & Fadi Moubarak,Moubarak Household,4
-Maya Abi Saad,Abi Saad Family,1
+full_name,normalized_name,group_name,is_group_leader,allowed_guests,rsvp_status
+Joseph Saidy,joseph saidy,Joseph & Miriam,true,2,pending
+Miriam Saidy,miriam saidy,Joseph & Miriam,false,2,pending
+Georges Saidy,georges saidy,Georges & Joelle,true,4,pending
+Joelle Saidy,joelle saidy,Georges & Joelle,false,4,pending
+Rami Khalil,rami khalil,Rami Khalil,true,2,pending
+Nada Moubarak,nada moubarak,Nada & Fadi,true,4,pending
+Fadi Moubarak,fadi moubarak,Nada & Fadi,false,4,pending
+Maya Abi Saad,maya abi saad,Maya Abi Saad,true,1,pending
