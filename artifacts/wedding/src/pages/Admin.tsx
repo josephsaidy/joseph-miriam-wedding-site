@@ -18,13 +18,19 @@ interface GroupRow {
   submitted_at: string | null;
 }
 
+interface EditState {
+  rsvp_status: string;
+  attending_count: number;
+  guest_message: string;
+  dietary_restrictions: string;
+}
+
 function buildGroups(guests: Guest[]): GroupRow[] {
   const map = new Map<string, Guest[]>();
   for (const g of guests) {
     if (!map.has(g.group_name)) map.set(g.group_name, []);
     map.get(g.group_name)!.push(g);
   }
-
   return Array.from(map.entries())
     .map(([group_name, members]) => {
       const leader = members.find((m) => m.is_group_leader) ?? members[0];
@@ -45,7 +51,6 @@ function buildGroups(guests: Guest[]): GroupRow[] {
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
-/** Wrap a value in double-quotes, escaping any embedded double-quotes. */
 function csvCell(value: string | number | null | undefined): string {
   const str = String(value ?? "");
   if (str.includes(",") || str.includes('"') || str.includes("\n")) {
@@ -56,16 +61,9 @@ function csvCell(value: string | number | null | undefined): string {
 
 function exportCSV(groups: GroupRow[]) {
   const headers = [
-    "Group Name",
-    "Members",
-    "Allowed Guests",
-    "RSVP Status",
-    "Attending Count",
-    "Message",
-    "Dietary Restrictions",
-    "Submitted At",
+    "Group Name", "Members", "Allowed Guests", "RSVP Status",
+    "Attending Count", "Message", "Dietary Restrictions", "Submitted At",
   ];
-
   const rows = groups.map((gr) => [
     csvCell(gr.group_name),
     csvCell(gr.members.map((m) => m.full_name).join(" | ")),
@@ -76,8 +74,7 @@ function exportCSV(groups: GroupRow[]) {
     csvCell(gr.dietary_restrictions),
     csvCell(gr.submitted_at ? new Date(gr.submitted_at).toLocaleString() : ""),
   ]);
-
-  const csv = [headers.map(csvCell), ...rows].map((r) => r.join(",")).join("\n");
+  const csv  = [headers.map(csvCell), ...rows].map((r) => r.join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
@@ -86,6 +83,17 @@ function exportCSV(groups: GroupRow[]) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// ─── Shared style tokens ──────────────────────────────────────────────────────
+
+const cellInput =
+  "w-full border-b border-border bg-transparent text-sm py-1 px-0 focus:outline-none focus:border-primary transition-colors";
+
+const statusBadge: Record<string, string> = {
+  pending:       "bg-yellow-100 text-yellow-800",
+  attending:     "bg-green-100 text-green-800",
+  not_attending: "bg-red-100 text-red-800",
+};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -96,6 +104,14 @@ export default function Admin() {
   const [guests, setGuests]         = useState<Guest[]>([]);
   const [loading, setLoading]       = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // Inline edit state
+  const [editingGroup, setEditingGroup] = useState<string | null>(null);
+  const [editState, setEditState]       = useState<EditState>({
+    rsvp_status: "pending", attending_count: 1, guest_message: "", dietary_restrictions: "",
+  });
+  const [saving, setSaving]     = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (sessionStorage.getItem("rsvp_admin") === "1") setAuthed(true);
@@ -109,7 +125,6 @@ export default function Admin() {
     setLoading(true);
     setFetchError(null);
     try {
-      // Uses SECURITY DEFINER RPC — direct table SELECT is blocked for anon
       const { data, error } = await supabase.rpc("get_all_guests_admin");
       if (error) throw error;
       setGuests((data as Guest[]) ?? []);
@@ -117,6 +132,49 @@ export default function Admin() {
       setFetchError(err instanceof Error ? err.message : "Failed to load guests.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function startEdit(gr: GroupRow) {
+    setEditingGroup(gr.group_name);
+    setEditState({
+      rsvp_status:          gr.rsvp_status,
+      attending_count:      gr.attending_count ?? gr.allowed_guests,
+      guest_message:        gr.guest_message ?? "",
+      dietary_restrictions: gr.dietary_restrictions ?? "",
+    });
+    setSaveError(null);
+  }
+
+  function cancelEdit() {
+    setEditingGroup(null);
+    setSaveError(null);
+  }
+
+  async function saveEdit(gr: GroupRow) {
+    // Client-side cap check
+    if (editState.rsvp_status === "attending" && editState.attending_count > gr.allowed_guests) {
+      setSaveError(`Max ${gr.allowed_guests} guest${gr.allowed_guests !== 1 ? "s" : ""} for this invitation.`);
+      return;
+    }
+
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const { error } = await supabase.rpc("admin_update_group", {
+        p_group_name:           gr.group_name,
+        p_rsvp_status:          editState.rsvp_status,
+        p_attending_count:      editState.rsvp_status === "not_attending" ? 0 : editState.attending_count,
+        p_guest_message:        editState.guest_message,
+        p_dietary_restrictions: editState.dietary_restrictions,
+      });
+      if (error) throw error;
+      setEditingGroup(null);
+      await loadGuests();
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save changes.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -136,19 +194,11 @@ export default function Admin() {
   const groups = buildGroups(guests);
 
   const totalInvited      = groups.reduce((s, g) => s + g.allowed_guests, 0);
-  const totalAttending    = groups
-    .filter((g) => g.rsvp_status === "attending")
-    .reduce((s, g) => s + (g.attending_count ?? 0), 0);
+  const totalAttending    = groups.filter((g) => g.rsvp_status === "attending").reduce((s, g) => s + (g.attending_count ?? 0), 0);
   const totalNotAttending = groups.filter((g) => g.rsvp_status === "not_attending").length;
   const totalPending      = groups.filter((g) => g.rsvp_status === "pending").length;
   const responded         = groups.filter((g) => g.rsvp_status !== "pending").length;
   const responseRate      = groups.length > 0 ? Math.round((responded / groups.length) * 100) : 0;
-
-  const statusBadge: Record<string, string> = {
-    pending:       "bg-yellow-100 text-yellow-800",
-    attending:     "bg-green-100 text-green-800",
-    not_attending: "bg-red-100 text-red-800",
-  };
 
   const labelBase = "uppercase tracking-widest text-xs text-muted-foreground";
   const inputBase = "border-b-2 border-t-0 border-x-0 rounded-none bg-transparent focus-visible:ring-0 focus-visible:border-primary px-0 text-lg w-full outline-none py-2";
@@ -247,7 +297,7 @@ export default function Admin() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  {["Invitation", "Members", "Allowed", "Status", "Attending", "Message", "Dietary", "Submitted"].map((h) => (
+                  {["Invitation", "Members", "Allowed", "Status", "Attending", "Message", "Dietary", "Submitted", ""].map((h) => (
                     <th key={h} className="text-left px-4 py-4 uppercase tracking-wider text-xs text-muted-foreground font-normal whitespace-nowrap">
                       {h}
                     </th>
@@ -257,42 +307,147 @@ export default function Admin() {
               <tbody>
                 {groups.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-12 text-muted-foreground font-light">
+                    <td colSpan={9} className="text-center py-12 text-muted-foreground font-light">
                       No guests found. Import the guest list into Supabase first.
                     </td>
                   </tr>
                 ) : (
-                  groups.map((gr) => (
-                    <tr key={gr.group_name} className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors align-top">
+                  groups.map((gr) => {
+                    const isEditing = editingGroup === gr.group_name;
 
-                      <td className="px-4 py-4 font-serif whitespace-nowrap">{gr.group_name}</td>
+                    return (
+                      <tr
+                        key={gr.group_name}
+                        className={`border-b border-border last:border-0 align-top transition-colors ${isEditing ? "bg-muted/60" : "hover:bg-muted/30"}`}
+                      >
+                        {/* Invitation */}
+                        <td className="px-4 py-4 font-serif whitespace-nowrap">{gr.group_name}</td>
 
-                      <td className="px-4 py-4 max-w-[200px]">
-                        <div className="flex flex-col gap-1">
-                          {gr.members.map((m) => (
-                            <span key={m.id} className="text-muted-foreground text-xs whitespace-nowrap">
-                              {m.full_name}{m.is_group_leader ? " ★" : ""}
+                        {/* Members */}
+                        <td className="px-4 py-4 max-w-[180px]">
+                          <div className="flex flex-col gap-1">
+                            {gr.members.map((m) => (
+                              <span key={m.id} className="text-muted-foreground text-xs whitespace-nowrap">
+                                {m.full_name}{m.is_group_leader ? " ★" : ""}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+
+                        {/* Allowed */}
+                        <td className="px-4 py-4 text-center">{gr.allowed_guests}</td>
+
+                        {/* Status — editable */}
+                        <td className="px-4 py-4 min-w-[140px]">
+                          {isEditing ? (
+                            <select
+                              value={editState.rsvp_status}
+                              onChange={(e) => setEditState((s) => ({ ...s, rsvp_status: e.target.value }))}
+                              className={`${cellInput} cursor-pointer`}
+                            >
+                              <option value="pending">pending</option>
+                              <option value="attending">attending</option>
+                              <option value="not_attending">not attending</option>
+                            </select>
+                          ) : (
+                            <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${statusBadge[gr.rsvp_status] ?? ""}`}>
+                              {gr.rsvp_status.replace("_", " ")}
                             </span>
-                          ))}
-                        </div>
-                      </td>
+                          )}
+                        </td>
 
-                      <td className="px-4 py-4 text-center">{gr.allowed_guests}</td>
+                        {/* Attending count — editable */}
+                        <td className="px-4 py-4 text-center min-w-[80px]">
+                          {isEditing && editState.rsvp_status === "attending" ? (
+                            <input
+                              type="number"
+                              min={1}
+                              max={gr.allowed_guests}
+                              value={editState.attending_count}
+                              onChange={(e) => setEditState((s) => ({ ...s, attending_count: Number(e.target.value) }))}
+                              className={`${cellInput} w-16 text-center`}
+                            />
+                          ) : (
+                            <span>{isEditing ? "—" : (gr.attending_count ?? "—")}</span>
+                          )}
+                        </td>
 
-                      <td className="px-4 py-4">
-                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${statusBadge[gr.rsvp_status] ?? ""}`}>
-                          {gr.rsvp_status.replace("_", " ")}
-                        </span>
-                      </td>
+                        {/* Message — editable */}
+                        <td className="px-4 py-4 min-w-[180px] max-w-[220px]">
+                          {isEditing && editState.rsvp_status !== "pending" ? (
+                            <input
+                              type="text"
+                              value={editState.guest_message}
+                              onChange={(e) => setEditState((s) => ({ ...s, guest_message: e.target.value }))}
+                              placeholder="Leave a note…"
+                              className={cellInput}
+                            />
+                          ) : (
+                            <span className="text-muted-foreground truncate block max-w-[200px]">
+                              {isEditing ? <span className="italic text-muted-foreground/50">cleared on pending</span> : (gr.guest_message || "—")}
+                            </span>
+                          )}
+                        </td>
 
-                      <td className="px-4 py-4 text-center">{gr.attending_count ?? "—"}</td>
-                      <td className="px-4 py-4 max-w-[200px] text-muted-foreground truncate">{gr.guest_message || "—"}</td>
-                      <td className="px-4 py-4 max-w-[160px] text-muted-foreground truncate">{gr.dietary_restrictions || "—"}</td>
-                      <td className="px-4 py-4 text-muted-foreground whitespace-nowrap">
-                        {gr.submitted_at ? new Date(gr.submitted_at).toLocaleDateString() : "—"}
-                      </td>
-                    </tr>
-                  ))
+                        {/* Dietary — editable */}
+                        <td className="px-4 py-4 min-w-[160px] max-w-[200px]">
+                          {isEditing && editState.rsvp_status !== "pending" ? (
+                            <input
+                              type="text"
+                              value={editState.dietary_restrictions}
+                              onChange={(e) => setEditState((s) => ({ ...s, dietary_restrictions: e.target.value }))}
+                              placeholder="e.g. vegetarian…"
+                              className={cellInput}
+                            />
+                          ) : (
+                            <span className="text-muted-foreground truncate block max-w-[160px]">
+                              {isEditing ? <span className="italic text-muted-foreground/50">cleared on pending</span> : (gr.dietary_restrictions || "—")}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Submitted */}
+                        <td className="px-4 py-4 text-muted-foreground whitespace-nowrap">
+                          {gr.submitted_at ? new Date(gr.submitted_at).toLocaleDateString() : "—"}
+                        </td>
+
+                        {/* Actions */}
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          {isEditing ? (
+                            <div className="flex flex-col gap-2 items-start">
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => saveEdit(gr)}
+                                  disabled={saving}
+                                  className="border border-foreground text-foreground text-xs font-serif px-3 py-1.5 hover:bg-foreground hover:text-background transition-all duration-200 disabled:opacity-50"
+                                >
+                                  {saving ? "Saving…" : "Save"}
+                                </button>
+                                <button
+                                  onClick={cancelEdit}
+                                  disabled={saving}
+                                  className="text-xs text-muted-foreground underline underline-offset-2 disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                              {saveError && (
+                                <p className="text-red-500 text-xs max-w-[160px]">{saveError}</p>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => startEdit(gr)}
+                              disabled={editingGroup !== null}
+                              className="border border-border text-muted-foreground text-xs font-serif px-3 py-1.5 hover:border-foreground hover:text-foreground transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

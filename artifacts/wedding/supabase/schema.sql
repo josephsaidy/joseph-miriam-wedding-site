@@ -150,8 +150,73 @@ AS $$
   ORDER BY group_name, is_group_leader DESC, full_name;
 $$;
 
--- 9. GRANT RPC access to anon role
-GRANT EXECUTE ON FUNCTION search_guests_for_rsvp()                      TO anon;
-GRANT EXECUTE ON FUNCTION get_group_by_guest_id(UUID)                   TO anon;
-GRANT EXECUTE ON FUNCTION submit_rsvp(UUID, TEXT, INTEGER, TEXT, TEXT)  TO anon;
-GRANT EXECUTE ON FUNCTION get_all_guests_admin()                        TO anon;
+-- 9. RPC: ADMIN UPDATE GROUP
+--    Admin-only override: updates all members of a group by group_name.
+--    Allows setting any valid rsvp_status (including 'pending').
+--    Enforces attending_count <= allowed_guests for the group.
+--    Returns the number of rows updated.
+CREATE OR REPLACE FUNCTION admin_update_group(
+  p_group_name           TEXT,
+  p_rsvp_status          TEXT,
+  p_attending_count      INTEGER,
+  p_guest_message        TEXT,
+  p_dietary_restrictions TEXT
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_allowed INTEGER;
+  v_updated INTEGER;
+BEGIN
+  IF p_rsvp_status NOT IN ('pending', 'attending', 'not_attending') THEN
+    RAISE EXCEPTION 'Invalid rsvp_status: %', p_rsvp_status;
+  END IF;
+
+  -- Get allowed_guests from the group leader (or any member as fallback)
+  SELECT allowed_guests INTO v_allowed
+    FROM guests
+   WHERE group_name = p_group_name
+   ORDER BY is_group_leader DESC
+   LIMIT 1;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Group not found: %', p_group_name;
+  END IF;
+
+  IF p_rsvp_status = 'attending' AND p_attending_count > v_allowed THEN
+    RAISE EXCEPTION 'attending_count (%) exceeds allowed_guests (%) for group "%"',
+      p_attending_count, v_allowed, p_group_name;
+  END IF;
+
+  UPDATE guests SET
+    rsvp_status          = p_rsvp_status,
+    attending_count      = CASE
+                             WHEN p_rsvp_status = 'not_attending' THEN 0
+                             WHEN p_rsvp_status = 'pending'       THEN NULL
+                             ELSE GREATEST(1, p_attending_count)
+                           END,
+    guest_message        = CASE WHEN p_rsvp_status = 'pending' THEN NULL
+                                ELSE p_guest_message
+                           END,
+    dietary_restrictions = CASE WHEN p_rsvp_status = 'pending' THEN NULL
+                                ELSE p_dietary_restrictions
+                           END,
+    submitted_at         = CASE WHEN p_rsvp_status = 'pending' THEN NULL
+                                ELSE NOW()
+                           END,
+    updated_at           = NOW()
+  WHERE group_name = p_group_name;
+
+  GET DIAGNOSTICS v_updated = ROW_COUNT;
+  RETURN v_updated;
+END;
+$$;
+
+-- 10. GRANT RPC access to anon role
+GRANT EXECUTE ON FUNCTION search_guests_for_rsvp()                              TO anon;
+GRANT EXECUTE ON FUNCTION get_group_by_guest_id(UUID)                           TO anon;
+GRANT EXECUTE ON FUNCTION submit_rsvp(UUID, TEXT, INTEGER, TEXT, TEXT)          TO anon;
+GRANT EXECUTE ON FUNCTION get_all_guests_admin()                                TO anon;
+GRANT EXECUTE ON FUNCTION admin_update_group(TEXT, TEXT, INTEGER, TEXT, TEXT)   TO anon;
