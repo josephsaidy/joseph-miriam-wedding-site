@@ -14,10 +14,13 @@
 
 This creates:
 - `guests` table — one row per person
-- `search_guests_for_rsvp()` — RPC for guest name search
+- `search_guests_for_rsvp()` — RPC for guest name search (returns id/name only, no RSVP data)
 - `get_group_by_guest_id()` — loads everyone in the same invitation group
-- `submit_rsvp()` — updates all group members at once
-- Row Level Security policies
+- `submit_rsvp()` — updates all group members at once, enforces attending_count cap
+- `get_all_guests_admin()` — returns the full table (admin use only)
+- `admin_update_group()` — admin override for any group's RSVP fields
+- `delete_group()` — permanently removes all members of a group (admin use only)
+- Row Level Security (no anon SELECT/UPDATE — all access via SECURITY DEFINER RPCs)
 
 ## 3. Import Your Guest List
 
