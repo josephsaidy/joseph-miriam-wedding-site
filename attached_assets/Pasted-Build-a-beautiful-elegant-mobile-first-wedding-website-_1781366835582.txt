@@ -1,0 +1,139 @@
+Build a beautiful, elegant, mobile-first wedding website for Joseph & Miriam’s wedding party in Lebanon.
+
+The website should feel romantic, classy, editorial, and premium — inspired by a Canva reference site with soft light grey backgrounds, black serif typography, warm beige buttons, large wedding photography, and a luxury invitation feel.
+
+IMPORTANT EVENT DETAILS:
+- Couple: Joseph & Miriam
+- Event: Wedding Party of Joseph & Miriam
+- Date: August 2nd, 2026
+- Location: Bekaa, Lebanon
+- Venue: Massabki Hotel, Chtoura
+- Address: 1802 Damascus Hwy, Chtaura, Beqaa Governorate, Lebanon
+- Parking: Many parking spots available on the sides and back of the hotel
+- Google Maps link: https://maps.app.goo.gl/i3Y7y7y5HGkTJv5v8
+
+STYLE / DESIGN DIRECTION:
+- Elegant wedding aesthetic
+- Use a clean luxury serif font for headings, similar to Playfair Display / Cormorant Garamond
+- Use a simple readable sans-serif for body text
+- Colors:
+  - Background: soft light grey / mist blue grey
+  - Text: black / dark charcoal
+  - Accent buttons: beige / champagne / taupe
+  - White cards with subtle shadows
+- Lots of whitespace
+- Smooth scrolling
+- Soft fade-in animations
+- Fully responsive for mobile, tablet, and desktop
+- Make it feel like a premium wedding landing page, not a generic template
+
+SITE STRUCTURE:
+Create a single-page website with the following sections:
+
+1. HERO SECTION
+- Large headline:
+  “You’re Invited To…”
+  “The Wedding Party of Joseph & Miriam”
+- Subheadline:
+  “on August 2nd, 2026 in Bekaa, Lebanon”
+- Include a photo collage/gallery area under the headline with placeholder images for now.
+- Add a clear RSVP button that scrolls to the RSVP section.
+- The hero should feel similar to an elegant wedding invitation.
+
+2. COUNTDOWN SECTION
+- Heading: “Until The Big Day”
+- Live countdown timer to August 2nd, 2026.
+- Show Days / Hours / Minutes / Seconds.
+- Use large elegant numbers and small labels underneath.
+
+3. OUR STORY SECTION
+Use this text:
+“Miriam and Joseph first crossed paths during a Zoom class in the middle of a pandemic, by pure chance. Miriam had joined Joseph’s section after missing her own. As she asked questions throughout, she stood out every time she spoke.
+
+Curious, he reached out to her on Instagram, and what started as a simple message quickly turned into long conversations and an undeniable connection. Not long after, they went out together, and from that moment, their story truly began.
+
+What followed was a summer full of memories: countless dates, activities, gym sessions, laughter, and growing together day by day. Through every moment, they found not just love, but a best friend in each other, and the beginning of a lifetime side by side.”
+
+- Layout: image on one side, text on the other.
+- On mobile, stack image above text.
+
+4. SCHEDULE SECTION
+Heading: “Schedule”
+Timeline:
+- 5:00 PM — Reception at Massabki Hotel
+- 11:00 PM — Farewells
+
+Important: This Lebanon wedding party does NOT need the Canada church / La Sirène info. Use Massabki Hotel only.
+
+5. GETTING THERE SECTION
+Heading: “Getting There”
+Venue: “Massabki Hotel, Chtoura”
+Address: “1802 Damascus Hwy, Chtaura, Beqaa Governorate, Lebanon”
+Parking note: “Many parking spots are available on the sides and back of the hotel.”
+Add buttons:
+- “Open in Google Maps” linking to https://maps.app.goo.gl/i3Y7y7y5HGkTJv5v8
+- “RSVP”
+
+Optionally include an embedded map or a clean map-style card.
+
+6. RSVP SECTION
+Create a beautiful RSVP form with:
+- Full Name
+- Number of Guests
+- Will you attend? Yes / No
+- Message or dietary restrictions
+- Submit button
+
+For now, make the form work client-side:
+- On submit, show a beautiful success message:
+  “Thank you! Your RSVP has been received. We can’t wait to celebrate with you.”
+- Structure the code so it can easily be connected later to Google Sheets, Supabase, Firebase, or EmailJS.
+- Add comments in the code explaining where to connect a backend later.
+
+7. CONTRIBUTIONS SECTION
+Heading: “Contributions”
+Text:
+“Your presence at our wedding is the greatest gift of all.
+
+For those who wish to contribute, gifts can be sent via [info to be added].”
+
+Make this section tasteful and not pushy. Use a simple card layout.
+
+8. FINAL SECTION / FOOTER
+- Full-width romantic photo background or soft gradient
+- Text: “See you there!”
+- RSVP button
+- Footer: “Joseph & Miriam — August 2nd, 2026”
+
+FUNCTIONAL REQUIREMENTS:
+- Use React with Vite if possible.
+- Use clean component-based structure:
+  - App.jsx
+  - components/Hero.jsx
+  - components/Countdown.jsx
+  - components/Story.jsx
+  - components/Schedule.jsx
+  - components/GettingThere.jsx
+  - components/RSVP.jsx
+  - components/Contributions.jsx
+  - components/Footer.jsx
+- Use CSS modules or a single clean App.css file.
+- Make the site polished and production-ready.
+- Include placeholder image paths like /images/photo1.jpg, /images/photo2.jpg, etc.
+- Add comments showing where I should replace placeholder photos with my real wedding photos.
+- Use accessible HTML labels for form fields.
+- Make buttons and links keyboard accessible.
+- Add smooth hover states and subtle animations.
+- Make sure the website looks excellent on phones first.
+
+EXTRA POLISH:
+- Add a sticky minimal navigation bar with links:
+  Home, Story, Schedule, Location, RSVP
+- Add subtle section dividers or ornamental flourishes.
+- Add fade-in-on-scroll animations.
+- Add a floating RSVP button on mobile.
+- Use elegant spacing and typography.
+- The result should look like a luxury wedding website, not a basic student project.
+
+DELIVERABLE:
+Generate the complete working Replit project with all files needed. Make sure it runs immediately with npm install and npm run dev.

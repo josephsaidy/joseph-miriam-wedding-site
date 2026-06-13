@@ -1,0 +1,26 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "esStoRLmLuh23rFx5bHh5"
+uri = "file://artifacts/wedding/public/images/hero-1.png"
+type = "image"
+title = "Romantic outdoor couple scene"
+
+[[generated]]
+id = "JcgNODYbQrs_loQx8KzGs"
+uri = "file://artifacts/wedding/public/images/hero-2.png"
+type = "image"
+title = "Close up hands holding"
+
+[[generated]]
+id = "Zx4nkmzuebdLuKAr9PqYf"
+uri = "file://artifacts/wedding/public/images/hero-3.png"
+type = "image"
+title = "Romantic landscape sunset"
+
+[[generated]]
+id = "jDOso--SZRYAw4OvDhfaX"
+uri = "file://artifacts/wedding/public/images/story.png"
+type = "image"
+title = "Intimate couple portrait"
