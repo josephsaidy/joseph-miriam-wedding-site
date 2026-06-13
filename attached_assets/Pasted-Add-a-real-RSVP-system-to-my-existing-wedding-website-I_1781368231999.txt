@@ -1,0 +1,159 @@
+Add a real RSVP system to my existing wedding website.
+
+IMPORTANT:
+- Do not redesign the website.
+- Do not change the existing homepage, story, schedule, location, photos, typography, or general design unless required for the RSVP feature.
+- Keep the current visual style and make the RSVP system match it.
+- Do not create a fake client-side RSVP form.
+- Use Supabase as the real backend database.
+
+GOAL:
+Guests should enter their name, the site should search a Supabase guest database, verify that they exist, handle small typos, then allow them to RSVP Yes or No. The response should update the database.
+
+SUPABASE SETUP:
+Create the Supabase client setup using environment variables:
+
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+VITE_ADMIN_PASSWORD
+
+Add a file like:
+
+src/lib/supabase.js
+
+The app should initialize Supabase from those environment variables.
+
+DATABASE:
+Create and include a complete Supabase SQL schema in a file called:
+
+supabase/schema.sql
+
+The guest database should support:
+- id
+- full_name
+- normalized_name
+- party_name
+- allowed_guests
+- rsvp_status: pending / attending / not_attending
+- attending_count
+- guest_message
+- dietary_restrictions
+- submitted_at
+- updated_at
+
+Also include any required indexes, constraints, Row Level Security policies, and functions needed for searching and updating RSVPs.
+
+RSVP FLOW:
+Update the RSVP section so it works like this:
+
+1. Guest enters their full name.
+2. Website normalizes the name.
+3. Website searches the Supabase guest database.
+4. If an exact match exists, show the matching guest/household.
+5. If a close match exists, suggest:
+   “Did you mean: [Guest Name]?”
+6. If multiple close matches exist, show up to 3 suggestions.
+7. If the guest confirms the match, show the RSVP form.
+8. If no match is found, show:
+   “We couldn’t find your name on the guest list. Please check the spelling or contact Joseph & Miriam.”
+
+FUZZY MATCHING:
+Implement typo-tolerant matching.
+
+Handle:
+- capitalization differences
+- extra spaces
+- accents
+- apostrophes
+- hyphens
+- reversed first/last name
+- small spelling mistakes
+- nicknames or shortened names where reasonable, like Joe/Joseph
+
+Use a reasonable similarity threshold so random people cannot RSVP.
+
+SECURITY:
+Do not expose the full guest list publicly.
+
+Guests should only see their own matched household/party after a search.
+
+Do not use the Supabase service role key anywhere in the frontend.
+
+Use Row Level Security where possible.
+
+If a more secure implementation needs Supabase SQL functions or RPC calls, create them and document them clearly.
+
+RSVP FORM:
+After the guest is matched, show:
+- Are you attending? Yes / No
+- Number of people attending, limited to allowed_guests
+- Message to Joseph & Miriam
+- Dietary restrictions
+
+When submitted:
+- Update the matched guest/household row in Supabase
+- Save rsvp_status
+- Save attending_count
+- Save guest_message
+- Save dietary_restrictions
+- Save submitted_at
+- Save updated_at
+- Show a success message
+
+If the person chooses “No”, attending_count should be 0.
+
+ADMIN PAGE:
+Add a simple admin page at:
+
+/admin
+
+Protect it with VITE_ADMIN_PASSWORD.
+
+The admin page should show:
+- Total invited capacity
+- Total attending
+- Total not attending
+- Total pending
+- RSVP response rate
+- Table of all guests/households
+- Full name
+- Party name
+- Allowed guests
+- RSVP status
+- Attending count
+- Message
+- Dietary restrictions
+- Submitted date
+- Export to CSV button
+
+The admin page should match the website’s existing visual style.
+
+GUEST LIST IMPORT:
+Create a sample CSV file called:
+
+supabase/sample-guests.csv
+
+Format:
+
+full_name,party_name,allowed_guests
+Joseph Saidy,Joseph Family,2
+Miriam Last Name,Miriam Family,2
+
+Also include instructions for importing this CSV into Supabase.
+
+README:
+Update README.md with exact setup instructions:
+1. Create Supabase project
+2. Run schema.sql in Supabase SQL Editor
+3. Add environment variables in Replit Secrets
+4. Import guest CSV
+5. Test RSVP flow
+6. Test admin page
+7. Deploy frontend
+
+CODE QUALITY:
+- Keep components clean
+- Match my existing site styling
+- Add clear comments
+- Do not break the existing site
+- Make the feature production-ready
