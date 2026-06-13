@@ -47,12 +47,29 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_ADMIN_PASSWORD: ${{ secrets.VITE_ADMIN_PASSWORD }}
 
-      - name: Prepare Pages output
+      - name: Find and prepare Pages output
         run: |
+          echo "Searching for built index.html..."
+          find artifacts/wedding -type f -name index.html -not -path "*/node_modules/*" -print
+
+          BUILD_INDEX=$(find artifacts/wedding -type f -name index.html -not -path "*/node_modules/*" -not -path "*/src/*" | grep -E "/(dist|build|out|public)/" | head -n 1)
+
+          if [ -z "$BUILD_INDEX" ]; then
+            echo "No built index.html found in dist/build/out/public."
+            echo "Directory tree:"
+            find artifacts/wedding -maxdepth 4 -type d -print
+            exit 1
+          fi
+
+          BUILD_DIR=$(dirname "$BUILD_INDEX")
+          echo "Using build directory: $BUILD_DIR"
+
           rm -rf pages-dist
           mkdir -p pages-dist
-          cp -a artifacts/wedding/dist/. pages-dist/
+          cp -a "$BUILD_DIR"/. pages-dist/
+
           cp pages-dist/index.html pages-dist/404.html
+
           echo "Final Pages files:"
           ls -la pages-dist
           test -f pages-dist/index.html
