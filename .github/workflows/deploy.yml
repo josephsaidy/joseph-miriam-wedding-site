@@ -37,9 +37,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Build
-        run: pnpm run build
+      - name: Build wedding site only
+        run: pnpm --filter "./artifacts/wedding" run build
         env:
+          PORT: 4173
+          BASE_PATH: /joseph-miriam-wedding-site/
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_ADMIN_PASSWORD: ${{ secrets.VITE_ADMIN_PASSWORD }}
@@ -47,7 +49,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist
+          path: ./artifacts/wedding/dist
 
   deploy:
     runs-on: ubuntu-latest
