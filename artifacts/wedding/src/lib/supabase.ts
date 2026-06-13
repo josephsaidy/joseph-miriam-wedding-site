@@ -11,6 +11,13 @@ export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "");
 
 export type RSVPStatus = "pending" | "attending" | "not_attending";
 
+export interface GuestAlias {
+  id: string;
+  guest_id: string;
+  alias: string;
+  normalized_alias: string;
+}
+
 export interface Guest {
   id: string;
   full_name: string;

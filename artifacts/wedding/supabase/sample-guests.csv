@@ -1,11 +1,7 @@
 full_name,party_name,allowed_guests
-Joseph Saidy,Saidy Family,2
-Miriam Khoury,Khoury Family,2
-Antoine Gemayel,Gemayel Family,4
-Sara Nassar,Nassar Family,2
-George Hayek,Hayek Family,3
-Carla Bou Nassif,Bou Nassif Family,2
+Joseph & Miriam Saidy,Saidy Household,2
+Antoine & Carla Gemayel,Gemayel Household,4
+George & Sara Hayek,Hayek Household,3
 Rami Khalil,Khalil Family,2
-Nada Moubarak,Moubarak Family,2
-Fadi Rizk,Rizk Family,4
-Maya Abi Saad,Abi Saad Family,2
+Nada & Fadi Moubarak,Moubarak Household,4
+Maya Abi Saad,Abi Saad Family,1

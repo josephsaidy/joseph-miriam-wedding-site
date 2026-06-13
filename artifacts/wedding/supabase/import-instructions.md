@@ -3,77 +3,101 @@
 ## 1. Create a Supabase Project
 
 1. Go to https://supabase.com and sign in
-2. Click "New project"
-3. Choose a name (e.g. "joseph-miriam-wedding") and set a database password
-4. Wait for the project to provision (~1 min)
+2. Click "New project", name it (e.g. "joseph-miriam-wedding"), set a DB password
+3. Wait ~1 min for provisioning
 
 ## 2. Run the Schema
 
-1. In your Supabase project, go to **SQL Editor** → **New query**
-2. Paste the entire contents of `supabase/schema.sql`
+1. Go to **SQL Editor** → **New query**
+2. Paste the full contents of `supabase/schema.sql`
 3. Click **Run**
 
-## 3. Environment Variables (already done)
+This creates:
+- `guests` table — one row per invitation/household
+- `guest_aliases` table — multiple searchable names per household
+- Secure RPC functions for guest search and RSVP submission
+- Row Level Security policies
 
-The following secrets are stored in Replit Secrets:
-- `VITE_SUPABASE_URL` — your project URL (Settings → API → Project URL)
-- `VITE_SUPABASE_ANON_KEY` — your anon/public key (Settings → API → Project API Keys)
-- `VITE_ADMIN_PASSWORD` — your chosen admin dashboard password
+## 3. Import Your Guest List
 
-## 4. Import Guest List
+### Step A — Import `sample-guests.csv` into the `guests` table
 
-### Option A — CSV Import (recommended)
+1. Edit `supabase/sample-guests.csv` with your real household rows.
+   Each row = one invitation. `full_name` should be the household display name.
 
-1. Edit `supabase/sample-guests.csv` with your real guest list.
-   The `normalized_name` column is computed automatically by a trigger — **do not add it manually**.
-   
-   Format:
-   ```
-   full_name,party_name,allowed_guests
-   Joseph Saidy,Saidy Family,2
-   Miriam Khoury,Khoury Family,4
-   ```
+2. In Supabase → **Table Editor** → `guests` → **Import data from CSV**
 
-2. In Supabase, go to **Table Editor** → **guests** → **Import data**
-3. Upload the CSV and map columns: `full_name`, `party_name`, `allowed_guests`
-4. Click Import
+3. Upload the file and map columns: `full_name`, `party_name`, `allowed_guests`
 
-### Option B — SQL Insert
+4. Click **Import**
 
-Run this in the SQL Editor for each guest:
+### Step B — Auto-populate `normalized_name`
+
+After importing, run this in the SQL Editor to fill in the normalized names:
+
 ```sql
-INSERT INTO guests (full_name, normalized_name, party_name, allowed_guests)
-VALUES (
-  'Joseph Saidy',
-  lower(regexp_replace('Joseph Saidy', '[^a-zA-Z ]', '', 'g')),
-  'Saidy Family',
-  2
+UPDATE guests
+SET normalized_name = lower(
+  trim(regexp_replace(
+    regexp_replace(full_name, '[^a-zA-Z\s]', ' ', 'g'),
+    '\s+', ' ', 'g'
+  ))
 );
 ```
 
-> **Important:** The `normalized_name` must be the lowercase, punctuation-stripped version of `full_name`. 
-> Use this SQL to auto-populate it after a bulk import:
-> ```sql
-> UPDATE guests
-> SET normalized_name = lower(regexp_replace(
->   regexp_replace(full_name, '[^\w\s]', ' ', 'g'),
->   '\s+', ' ', 'g'
-> ));
-> ```
+### Step C — Import aliases
 
-## 5. Test the RSVP Flow
+1. Edit `supabase/sample-aliases.csv` — add one row per searchable name per household.
+   The `guest_full_name` column must exactly match `full_name` in the guests table.
 
-1. Open the wedding site and scroll to the RSVP section
-2. Type a guest name (try slight misspellings to test fuzzy matching)
-3. Confirm the match and fill in the form
-4. Submit — check Supabase Table Editor to confirm the row updated
+   Example CSV:
+   ```
+   guest_full_name,alias
+   Joseph & Miriam Saidy,Joseph Saidy
+   Joseph & Miriam Saidy,Miriam Saidy
+   Joseph & Miriam Saidy,Joseph & Miriam Saidy
+   ```
 
-## 6. Test the Admin Dashboard
+2. Run this SQL in the SQL Editor to insert the aliases (linking by full_name):
+
+```sql
+-- Run after importing sample-aliases.csv data via a temp table, or insert manually:
+INSERT INTO guest_aliases (guest_id, alias, normalized_alias)
+SELECT
+  g.id,
+  a.alias,
+  lower(trim(regexp_replace(regexp_replace(a.alias, '[^a-zA-Z\s]', ' ', 'g'), '\s+', ' ', 'g')))
+FROM (
+  VALUES
+    ('Joseph & Miriam Saidy', 'Joseph Saidy'),
+    ('Joseph & Miriam Saidy', 'Miriam Saidy'),
+    ('Joseph & Miriam Saidy', 'Joseph & Miriam Saidy'),
+    ('Joseph & Miriam Saidy', 'Miriam & Joseph Saidy'),
+    ('Antoine & Carla Gemayel', 'Antoine Gemayel'),
+    ('Antoine & Carla Gemayel', 'Carla Gemayel')
+    -- Add more rows here following the same pattern
+) AS a(guest_full_name, alias)
+JOIN guests g ON g.full_name = a.guest_full_name;
+```
+
+**Tip:** For each couple/household, add these aliases:
+- Each person's individual name (e.g. "Joseph Saidy", "Miriam Saidy")  
+- The combined name in both orders (e.g. "Joseph & Miriam Saidy", "Miriam & Joseph Saidy")
+- Common nicknames if applicable
+
+## 4. Verify in the Admin Dashboard
 
 1. Go to `/admin` on your wedding site
 2. Enter your `VITE_ADMIN_PASSWORD`
-3. You should see all guests, their RSVP status, and stats
+3. Each guest row shows a "Search Names" column listing all aliases
 
-## 7. Deploy
+## 5. Test RSVP Flow
 
-Use the Deploy button in Replit. All environment variables are already stored as Secrets and will be available in production.
+1. Scroll to the RSVP section on the wedding site
+2. Try typing individual names (e.g. "Joseph Saidy" or "Miriam Saidy") — both should match the same household
+3. Try a slight misspelling to test fuzzy matching
+4. Complete the RSVP form and check Supabase Table Editor to confirm the update
+
+## 6. Deploy
+
+Use the Deploy button in Replit. All secrets (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_ADMIN_PASSWORD`) are already stored and available in production.
